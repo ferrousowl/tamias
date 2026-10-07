@@ -910,6 +910,11 @@
     "name": "submitBy",
     "type": "uint64",
     "internalType": "uint64"
+   },
+   {
+    "name": "byOwner",
+    "type": "bool",
+    "internalType": "bool"
    }
   ],
   "stateMutability": "view"
@@ -1234,6 +1239,19 @@
    }
   ],
   "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "ownerIntentEpoch",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint64",
+    "internalType": "uint64"
+   }
+  ],
+  "stateMutability": "view"
  },
  {
   "type": "function",

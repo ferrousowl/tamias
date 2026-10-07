@@ -120,7 +120,7 @@
         "periodHours": 24
       },
       {
-        "name": "agent operations (own gas, data purchases, Gateway fees)",
+        "name": "agent operations (own gas, data purchases)",
         "budget": 0.2,
         "periodHours": 24
       },
@@ -128,6 +128,11 @@
         "name": "owner distributions",
         "budget": 0,
         "periodHours": 168
+      },
+      {
+        "name": "Gateway fees",
+        "budget": 0.05,
+        "periodHours": 24
       }
     ],
     "payees": [
@@ -210,7 +215,7 @@
     "recallMaxFee": 0.01,
     "maxIntentBlocks": 200000,
     "cap": 10,
-    "feeCategory": 2
+    "feeCategory": 4
   },
   "cctp": {
     "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"

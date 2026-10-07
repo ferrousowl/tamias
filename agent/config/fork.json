@@ -126,7 +126,7 @@
         "periodHours": 24
       },
       {
-        "name": "agent operations (own gas, data purchases, Gateway fees)",
+        "name": "agent operations (own gas, data purchases)",
         "budget": 0.2,
         "periodHours": 24
       },
@@ -134,6 +134,11 @@
         "name": "owner distributions",
         "budget": 0,
         "periodHours": 168
+      },
+      {
+        "name": "Gateway fees",
+        "budget": 0.05,
+        "periodHours": 24
       }
     ],
     "payees": [
@@ -216,7 +221,7 @@
     "recallMaxFee": 0.01,
     "maxIntentBlocks": 200000,
     "cap": 10,
-    "feeCategory": 2
+    "feeCategory": 4
   },
   "cctp": {
     "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
@@ -251,7 +256,7 @@
       }
     ]
   },
-  "tamias": "0x41c56fe4f55ec380c9257d4701b8fa6b85372493",
-  "deployBlock": 24771894,
-  "deployTx": "0xbb170156179805cf28e6dec109a3fa02e463301be71e853ad30c5a1f9fdc487a"
+  "tamias": "0x302b36d550081713a7dedf7a0211f1e2de17af28",
+  "deployBlock": 24771919,
+  "deployTx": "0x43519d12c39f0111df006322b7513ec16ac24f6787d72f8f3f8293caad0b663e"
 }

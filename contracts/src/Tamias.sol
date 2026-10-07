@@ -29,7 +29,7 @@ interface ITokenMessengerV2 {
 interface IGatewayWallet {
     function deposit(address token, uint256 value) external;
     function depositFor(address token, address depositor, uint256 value) external;
-    function availableBalance(address token, address depositor) external view returns (uint256);
+    function totalBalance(address token, address depositor) external view returns (uint256);
     function withdrawalDelay() external view returns (uint256);
 }
 
@@ -149,8 +149,9 @@ contract Tamias {
     ///      submitted, so the authorization needs to live only minutes, and it lapses whenever the
     ///      owner applies a brake (freeze, new agent key, payee or Gateway change).
     struct IntentAuth {
-        uint64 epoch;
+        uint64 epoch; // `intentEpoch` for the agent's intents, `ownerIntentEpoch` for the owner's
         uint64 submitBy; // last block at which `isValidSignature` accepts it
+        bool byOwner; // owner intents survive the agent's brakes (they are how the owner recovers)
     }
 
     /// @dev Circle Gateway burn intent (EIP-712, domain {name: "GatewayWallet", version: "1"}).
@@ -250,6 +251,7 @@ contract Tamias {
     ///         and only while their epoch is current and their submission window open.
     mapping(bytes32 digest => IntentAuth) public intentAuth;
     uint64 public intentEpoch;
+    uint64 public ownerIntentEpoch;
 
     bool private transient _locked;
 
@@ -299,28 +301,46 @@ contract Tamias {
 
     // ─────────────────────────── modifiers ───────────────────────────
 
+    // Each modifier calls one internal function, so its checks are not copied into every function.
+
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        _onlyOwner();
         _;
     }
 
     modifier onlyAgent() {
-        if (msg.sender != agent) revert NotAgent();
-        if (frozen) revert Frozen();
+        _onlyAgent();
         _;
     }
 
     /// @dev Agent records are bounded so a log entry always stays cheap to store and to read.
     modifier bounded(bytes calldata record) {
-        if (record.length > MAX_RECORD) revert RecordTooLong();
+        _bounded(record.length);
         _;
     }
 
     modifier nonReentrant() {
-        if (_locked) revert Reentrancy();
-        _locked = true;
+        _enter();
         _;
         _locked = false;
+    }
+
+    function _onlyOwner() internal view {
+        if (msg.sender != owner) revert NotOwner();
+    }
+
+    function _onlyAgent() internal view {
+        if (msg.sender != agent) revert NotAgent();
+        if (frozen) revert Frozen();
+    }
+
+    function _bounded(uint256 length) internal pure {
+        if (length > MAX_RECORD) revert RecordTooLong();
+    }
+
+    function _enter() internal {
+        if (_locked) revert Reentrancy();
+        _locked = true;
     }
 
     constructor(address owner_, address agent_, uint128 autoLimit_, uint128 floor_) {
@@ -366,7 +386,7 @@ contract Tamias {
     function act(uint256 actionId, bytes calldata record) external onlyAgent bounded(record) nonReentrant {
         Action storage a = _action(actionId);
         if (!a.active) revert Inactive();
-        if (usdRate[a.target] != 0) revert BadParams();
+        _checkAction(a);
         uint256 before = cash();
         _call(a.target, 0, a.data);
         uint256 afterCash = cash();
@@ -464,7 +484,7 @@ contract Tamias {
         _approve(w, amount);
         IGatewayWallet(w).deposit(USDC, amount);
         _approve(w, 0);
-        uint256 held = IGatewayWallet(w).availableBalance(USDC, address(this));
+        uint256 held = IGatewayWallet(w).totalBalance(USDC, address(this)); // includes any withdrawal in progress
         if (held > gateway.cap) revert OverGatewayCap(held, gateway.cap);
         _checkFloor(before);
         _record(OP_GATEWAY_IN, 0, USDC, amount, 0, _b32(w), record);
@@ -525,7 +545,10 @@ contract Tamias {
         // Gateway refuses intents that could still be burned after a trustless withdrawal could
         // complete; anything much longer only keeps an authorization alive for no reason.
         uint256 delay = IGatewayWallet(g.wallet).withdrawalDelay();
-        if (bi.maxBlockHeight < block.number + delay || bi.maxBlockHeight > block.number + delay + g.maxIntentBlocks) {
+        if (
+            bi.maxBlockHeight < block.number + delay + INTENT_SUBMIT_BLOCKS
+                || bi.maxBlockHeight > block.number + delay + g.maxIntentBlocks
+        ) {
             revert BadIntent(7);
         }
 
@@ -552,7 +575,7 @@ contract Tamias {
             if (usd > autoLimit) revert OverAutoLimit(usd, autoLimit);
             _charge(p.category, usd, true);
         }
-        digest = _authorize(bi);
+        digest = _authorize(bi, false);
         _record(OP_INTENT, payeeId, USDC, t.value, usd, digest, record);
     }
 
@@ -584,6 +607,7 @@ contract Tamias {
         } else {
             Action storage a = _action(pr.ref);
             if (!a.active || _actionHash(a) != pr.target) revert ProposalChanged();
+            _checkAction(a);
             usd = a.charge;
             if (usd > 0) _charge(a.category, usd, false);
             _call(a.target, 0, a.data);
@@ -690,6 +714,7 @@ contract Tamias {
         }
         gateway = g;
         ++intentEpoch;
+        ++ownerIntentEpoch;
         _policy();
     }
 
@@ -706,13 +731,14 @@ contract Tamias {
     }
 
     /// @notice The owner may authorize a Gateway intent by hand, e.g. to recover the Gateway
-    ///         balance without an agent. It must still be a burn intent spending this treasury's
-    ///         own Gateway balance: the contract computes the digest itself, so an owner can never
-    ///         be talked into blessing an arbitrary hash (which other protocols would accept as
-    ///         this treasury's signature).
+    ///         balance while the agent is frozen or gone. It must still be a burn intent spending
+    ///         this treasury's own Gateway balance: the contract computes the digest itself, so an
+    ///         owner can never be talked into blessing an arbitrary hash (which other protocols
+    ///         would accept as this treasury's signature). It lapses only by time, `revokeIntent`
+    ///         or `setGateway`, never by the agent's brakes.
     function ownerAuthorizeIntent(BurnIntent calldata bi) external onlyOwner returns (bytes32 digest) {
         _checkSource(bi, gateway);
-        digest = _authorize(bi);
+        digest = _authorize(bi, true);
         _policy();
     }
 
@@ -808,8 +834,8 @@ contract Tamias {
     ///         their window is open and no brake has been applied since.
     function isValidSignature(bytes32 hash, bytes calldata) external view returns (bytes4) {
         IntentAuth memory a = intentAuth[hash];
-        bool ok = a.submitBy != 0 && !frozen && a.epoch == intentEpoch && block.number <= a.submitBy;
-        return ok ? ERC1271_OK : bytes4(0xffffffff);
+        bool live = a.byOwner ? a.epoch == ownerIntentEpoch : (!frozen && a.epoch == intentEpoch);
+        return live && a.submitBy != 0 && block.number <= a.submitBy ? ERC1271_OK : bytes4(0xffffffff);
     }
 
     /// @notice EIP-712 digest of a Gateway burn intent, as Gateway computes it.
@@ -902,14 +928,36 @@ contract Tamias {
         }
     }
 
-    function _authorize(BurnIntent calldata bi) internal returns (bytes32 digest) {
+    function _authorize(BurnIntent calldata bi, bool byOwner) internal returns (bytes32 digest) {
         digest = intentDigest(bi);
-        intentAuth[digest] = IntentAuth(intentEpoch, uint64(block.number) + INTENT_SUBMIT_BLOCKS);
+        intentAuth[digest] =
+            IntentAuth(byOwner ? ownerIntentEpoch : intentEpoch, uint64(block.number) + INTENT_SUBMIT_BLOCKS, byOwner);
     }
 
     /// @dev What a proposal to pay this payee is bound to: where and how the money would go.
     function _payeeHash(Payee storage p) internal view returns (bytes32) {
-        return keccak256(abi.encode(p.account, p.via, p.domain, p.kind, p.category, p.remoteToken));
+        return keccak256(abi.encode(p.account, p.via, p.domain, p.kind, p.category, p.remoteToken, p.maxFee));
+    }
+
+    /// @dev An action's value must be visible to the budget, which measures only USDC on hand.
+    ///      So no action may call a priced token, a reserve (vault or Gateway), or any function that
+    ///      grants an allowance or moves tokens, on any target: value moved that way would leave
+    ///      unseen, now or later. Such things are the owner's to do with `ownerCall`.
+    function _checkAction(Action storage a) internal view {
+        address t = a.target;
+        if (usdRate[t] != 0 || t == gateway.wallet) revert BadParams();
+        for (uint256 i; i < _vaults.length; ++i) {
+            if (_vaults[i].vault == t) revert BadParams();
+        }
+        if (a.data.length >= 4) {
+            bytes4 sel = bytes4(a.data);
+            if (
+                sel == IERC20.approve.selector || sel == IERC20.transfer.selector || sel == 0x23b872dd // transferFrom
+                    || sel == 0x39509351 // increaseAllowance
+                    || sel == 0xd505accf // permit (EIP-2612)
+                    || sel == 0xa22cb465 // setApprovalForAll
+            ) revert BadParams();
+        }
     }
 
     function _actionHash(Action storage a) internal view returns (bytes32) {

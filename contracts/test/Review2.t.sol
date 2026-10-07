@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Tamias, IERC20} from "../src/Tamias.sol";
 
-/// @dev Second-round review PoCs (fixes in 357dd76). Each test PASSES when the behaviour it
-///      describes is present.
+/// @dev Regression tests for the second review round (re-review of the fixes, 2026-10-07): each
+///      issue was first shown by a passing proof of concept; these assert the corrected behaviour.
 interface IGatewayWallet2 {
     function withdrawalDelay() external view returns (uint256);
     function availableBalance(address token, address depositor) external view returns (uint256);
@@ -13,7 +13,7 @@ interface IGatewayWallet2 {
     function initiateWithdrawal(address token, uint256 value) external;
 }
 
-contract ReviewPoC2Test is Test {
+contract Review2Test is Test {
     address constant USDC = 0x3600000000000000000000000000000000000000;
     address constant EURC = 0xbEf5f6d51CB62b58e6A8f77868681825C6fe21c1;
     address constant GATEWAY_WALLET = 0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE;
@@ -101,63 +101,56 @@ contract ReviewPoC2Test is Test {
     //        agent's `freeze()` (callable at any time, even when already frozen) or any routine
     //        owner change lapses an owner-authorized intent too ──
 
-    function test_N1_ownerRecoveryIntentDoesNotValidateWhileFrozen() public {
+    function test_N1_ownerRecoveryIntentValidatesWhileFrozen() public {
         vm.prank(agent);
         t.toGateway(4e6, "");
         vm.startPrank(owner);
         t.setFrozen(true); // incident: stop the agent, then get the reserve back
         bytes32 d = t.ownerAuthorizeIntent(_recall(4e6, block.number + _delay() + 172_800));
         vm.stopPrank();
-        assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff), "owner's recall refused while frozen");
+        assertEq(t.isValidSignature(d, ""), OK, "the owner's recall works while the agent is frozen");
     }
 
-    function test_N1_agentFreezeOrAnyPayeeEditLapsesTheOwnersIntent() public {
+    function test_N1_agentBrakesDoNotLapseTheOwnersIntent() public {
         vm.prank(agent);
         t.toGateway(4e6, "");
         Tamias.BurnIntent memory bi = _recall(4e6, block.number + _delay() + 172_800);
         vm.prank(owner);
         bytes32 d = t.ownerAuthorizeIntent(bi);
         assertEq(t.isValidSignature(d, ""), OK);
-
         vm.prank(agent);
-        t.freeze("I stop myself"); // also callable repeatedly while frozen
+        t.freeze("I stop myself");
+        vm.prank(agent);
+        t.freeze("and again");
         vm.prank(owner);
-        t.setFrozen(false);
-        assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff), "owner's intent lapsed by the agent");
-
+        t.setPayee(2, _p(stranger, address(0), 0, Tamias.Kind.Transfer, INFRA, 1, 0, address(0)));
+        assertEq(t.isValidSignature(d, ""), OK, "still valid after agent freezes and payee edits");
+        // it lapses by time, by revocation, or when Gateway is reconfigured
+        (address w, address m, uint32 dom, uint128 rmf, uint32 mib, uint128 cap, uint16 fc) = t.gateway();
+        vm.prank(owner);
+        t.setGateway(Tamias.GatewayConfig(w, m, dom, rmf, mib, cap, fc));
+        assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff));
         bi = _recall(4e6, block.number + _delay() + 172_801);
         vm.prank(owner);
         d = t.ownerAuthorizeIntent(bi);
-        assertEq(t.isValidSignature(d, ""), OK);
-        vm.prank(owner);
-        t.setPayee(2, _p(stranger, address(0), 0, Tamias.Kind.Transfer, INFRA, 1, 0, address(0))); // unrelated new payee
-        assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff), "lapsed by an unrelated payee addition");
+        vm.roll(block.number + t.INTENT_SUBMIT_BLOCKS() + 1);
+        assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff));
     }
 
-    // ── N2: the lower bound does not cover the submit window. Gateway requires maxBlockHeight to
-    //        be >= (current block + withdrawalDelay) when the intent is submitted, so an intent at
-    //        the contract's lower bound is unattestable one block later, while still "signed" and
-    //        already charged to the budget ──
-
-    function test_N2_intentAtTheLowerBoundGoesStaleNextBlock() public {
-        Tamias.BurnIntent memory bi = _recall(1e6, block.number + _delay());
+    function test_N2_lowerBoundCoversTheSubmitWindow() public {
+        Tamias.BurnIntent memory bi = _recall(1e6, block.number + _delay() + t.INTENT_SUBMIT_BLOCKS() - 1);
         bi.spec.destinationDomain = BASE;
         bi.spec.destinationToken = _b(BASE_USDC);
         bi.spec.destinationRecipient = _b(vendor);
         vm.prank(agent);
-        bytes32 d = t.authorizeIntent(bi, P_VENDOR, "");
-        (,, uint256 spent,,,) = t.budgetOf(VENDORS);
-        assertEq(spent, 1.01e6);
-        vm.roll(block.number + 1);
-        assertLt(bi.maxBlockHeight, block.number + _delay(), "below Gateway's minimum at submission");
-        assertEq(t.isValidSignature(d, ""), OK, "still signed for 3,599 more blocks");
+        vm.expectRevert(abi.encodeWithSelector(Tamias.BadIntent.selector, uint8(7)));
+        t.authorizeIntent(bi, P_VENDOR, "");
+        bi.maxBlockHeight += 1;
+        vm.prank(agent);
+        t.authorizeIntent(bi, P_VENDOR, "");
     }
 
-    // ── N3: the `act` guard keys on `usdRate`, not on value. An unpriced token the treasury holds
-    //        (EURC before/after the owner prices it, vault shares) can still be approved by an
-    //        owner action, and the outflow measurement sees only native USDC ──
-
-    function test_N3_unpricedTokenAllowanceActionStillBypassesBudget() public {
+    function test_N3_allowanceAndTransferActionsAreRefusedOnAnyTarget() public {
         deal(EURC, address(t), 10e6); // EURC held, but not priced (rate 0)
         Tamias.Action memory a;
         a.target = EURC;
@@ -167,30 +160,40 @@ contract ReviewPoC2Test is Test {
         a.data = abi.encodeCall(IERC20.approve, (stranger, 2e6));
         vm.prank(owner);
         t.setAction(0, a);
-        for (uint256 i; i < 5; i++) {
-            vm.prank(agent);
-            t.act(0, "");
-            vm.prank(stranger);
-            (bool ok,) = EURC.call(abi.encodeWithSignature("transferFrom(address,address,uint256)", address(t), stranger, 2e6));
-            assertTrue(ok);
-        }
-        (,, uint256 spent,,,) = t.budgetOf(INFRA);
-        assertEq(spent, 0.5e6);
-        assertEq(IERC20(EURC).balanceOf(stranger), 10e6);
+        vm.prank(agent);
+        vm.expectRevert(Tamias.BadParams.selector);
+        t.act(0, "");
+        // the same through an approved proposal
+        vm.prank(agent);
+        uint256 id = t.propose(2, 0, address(0), address(0), 0, "");
+        vm.prank(owner);
+        vm.expectRevert(Tamias.BadParams.selector);
+        t.approveProposal(id, "");
+        // transfer / transferFrom selectors on an arbitrary contract
+        a.target = GATEWAY_MINTER;
+        a.data = abi.encodeWithSelector(IERC20.transfer.selector, stranger, 1);
+        vm.prank(owner);
+        t.setAction(1, a);
+        vm.prank(agent);
+        vm.expectRevert(Tamias.BadParams.selector);
+        t.act(1, "");
+        // the Gateway wallet itself
+        a.target = GATEWAY_WALLET;
+        a.data = abi.encodeWithSignature("initiateWithdrawal(address,uint256)", USDC, 1);
+        vm.prank(owner);
+        t.setAction(2, a);
+        vm.prank(agent);
+        vm.expectRevert(Tamias.BadParams.selector);
+        t.act(2, "");
     }
 
-    // ── N4: the Gateway cap counts only `availableBalance`. After the owner starts a trustless
-    //        withdrawal, the agent can park up to the cap again on top of it ──
-
-    function test_N4_gatewayCapIgnoresWithdrawingBalance() public {
+    function test_N4_gatewayCapCountsWithdrawingBalance() public {
         vm.prank(agent);
         t.toGateway(5e6, ""); // at the 5 USDC cap
         vm.prank(owner);
         t.ownerCall(GATEWAY_WALLET, 0, abi.encodeCall(IGatewayWallet2.initiateWithdrawal, (USDC, 5e6)));
         vm.prank(agent);
+        vm.expectRevert(abi.encodeWithSelector(Tamias.OverGatewayCap.selector, 9.5e6, 5e6));
         t.toGateway(4.5e6, "");
-        uint256 total = IGatewayWallet2(GATEWAY_WALLET).availableBalance(USDC, address(t))
-            + IGatewayWallet2(GATEWAY_WALLET).withdrawingBalance(USDC, address(t));
-        assertEq(total, 9.5e6, "9.5 USDC in Gateway under a 5 USDC cap");
     }
 }
