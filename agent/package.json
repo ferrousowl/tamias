@@ -1,0 +1,13 @@
+{
+  "name": "tamias-agent",
+  "private": true,
+  "type": "module",
+  "description": "Tamias: the treasurer agent loop (observe, forecast, decide with Claude, act through the Tamias contract)",
+  "scripts": {
+    "cycle": "node cycle.mjs",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.57.2"
+  }
+}
