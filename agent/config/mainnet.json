@@ -1,0 +1,252 @@
+{
+  "rpc": "https://rpc.mainnet.arc.io",
+  "chainId": 5042,
+  "explorer": "https://explorer.arc.io",
+  "model": "opus",
+  "effort": "medium",
+  "keys": {
+    "agent": "tamias-agent",
+    "owner": "tamias-owner"
+  },
+  "business": {
+    "name": "ferrousowl's Arc operation",
+    "description": "ferrousowl runs two live public protocols on Arc mainnet, built and launched on 2026-10-02: Standing (recurring USDC payments with keeper gas refunds) and Tock (a scheduler where owners prepay USDC gas for scheduled jobs). The business keeps both public demos running: an hourly 0.05 USDC subscription payment (Standing order 0, paid by our demo subscriber to our merchant account and settled every hour by Tock job 0) and a daily 0.01 USDC scheduled payment (Tock job 1). Its costs are gas: the Tock gas balance that pays whoever runs the jobs, the float the keeper bots need to send transactions, and your own transaction gas. Revenue: subscription income to the merchant account and executor fees our own wallets earn; a fixed collector sweeps those into the treasury before each cycle (it leaves each wallet a working float). You cannot spend from those wallets; only the treasury pays, through you. The demo subscriber is our own test customer: refilling it is a marketing cost that keeps the public demo alive, most of which comes back as revenue.",
+    "wallets": [
+      {
+        "id": "deployer",
+        "label": "merchant account: receives Standing revenue, owns the Tock jobs",
+        "address": "0x95B4c1513B80161db87De67f63a1B58faB1061D4",
+        "minimum": 0.3
+      },
+      {
+        "id": "subscriber",
+        "label": "demo customer: pays 0.05 USDC every hour",
+        "address": "0xb642626c89eBe53EdcB26EE4804caa187C43A5E8",
+        "minimum": 0.15
+      },
+      {
+        "id": "tockAgent",
+        "label": "Tock Agent of the merchant: pays the daily job, earns Standing executor fees",
+        "address": "0xfeAdfe9dbA27811943E90CA1b79D5F03Fe60AED6",
+        "minimum": 0.05
+      },
+      {
+        "id": "tockKeeper",
+        "label": "Tock keeper bot: sends the job transactions, refunded by Tock",
+        "address": "0xa2dD4cF0c96Dca1324D47F627d885046d763c965",
+        "minimum": 0.05
+      },
+      {
+        "id": "keeper",
+        "label": "Standing fallback keeper",
+        "address": "0x662F2F89Fa29D2F9747f3b363dE0CcD58878107F",
+        "minimum": 0.05
+      },
+      {
+        "id": "agentGas",
+        "label": "Tamias agent hot key: pays gas for your own transactions",
+        "address": "0xec358c50D7079EB83Ae317D20052e6be80a2EF39",
+        "minimum": 0.05
+      }
+    ],
+    "tock": {
+      "address": "0x3d5414F772Ce5667b13DfB9339a03072fd904F35",
+      "typicalFeeShare": 0.5,
+      "owners": [
+        {
+          "id": "merchant",
+          "label": "Tock gas balance that pays for the merchant's scheduled jobs",
+          "address": "0x95B4c1513B80161db87De67f63a1B58faB1061D4",
+          "agentWallet": "tockAgent",
+          "minimum": 0.15
+        }
+      ]
+    },
+    "standing": {
+      "address": "0x6592396898A59FA0AA3374AFdC96b8FCF407EE24",
+      "orders": [
+        0
+      ]
+    },
+    "notes": [
+      "Keep operating accounts funded for roughly 1\u20133 days of their expected use; idle cash belongs in the treasury, where it stays available for whatever comes up. Top up when an account is heading below a day of runway before your next look, not before.",
+      "Treasury policy on idle cash: money the operation will not need within about two weeks of refills should earn yield in a listed vault if the yield beats the gas of moving it there and back; keep at least a day of refills plus the floor as cash. Check current yields before parking or moving a meaningful amount.",
+      "Owner distributions (payee 6) always need my approval: propose one only when the treasury holds clearly more than two weeks of the operation's needs.",
+      "If a scheduled job or the hourly payment is overdue by more than 15 minutes, settle it directly (action 0) and say so."
+    ]
+  },
+  "collector": {
+    "sweeps": [
+      {
+        "from": "deployer",
+        "key": "deployer",
+        "keep": 0.6,
+        "minSweep": 0.3
+      },
+      {
+        "from": "tockAgent",
+        "agentOwnerKey": "deployer",
+        "keep": 0.2,
+        "minSweep": 0.2
+      },
+      {
+        "from": "keeper",
+        "key": "keeper",
+        "keep": 0.3,
+        "minSweep": 0.2
+      },
+      {
+        "from": "tockKeeper",
+        "key": "tock-keeper",
+        "keep": 0.3,
+        "minSweep": 0.2
+      }
+    ]
+  },
+  "policy": {
+    "autoLimit": 1,
+    "floor": 0.5,
+    "proposalTtlHours": 72,
+    "eurcRate": 1.17,
+    "categories": [
+      {
+        "name": "infrastructure (scheduler gas, keeper float)",
+        "budget": 1,
+        "periodHours": 24
+      },
+      {
+        "name": "demo programs (test customer, daily job)",
+        "budget": 1.5,
+        "periodHours": 24
+      },
+      {
+        "name": "agent operations (own gas, data purchases, Gateway fees)",
+        "budget": 0.2,
+        "periodHours": 24
+      },
+      {
+        "name": "owner distributions",
+        "budget": 0,
+        "periodHours": 168
+      }
+    ],
+    "payees": [
+      {
+        "label": "Tock gas balance (pays for the scheduled jobs)",
+        "kind": "tock-gas",
+        "account": "0x95B4c1513B80161db87De67f63a1B58faB1061D4",
+        "via": "tock",
+        "category": 0,
+        "maxPayment": 1
+      },
+      {
+        "label": "Tock keeper float",
+        "kind": "transfer",
+        "account": "0xa2dD4cF0c96Dca1324D47F627d885046d763c965",
+        "category": 0,
+        "maxPayment": 0.3
+      },
+      {
+        "label": "Standing fallback keeper float",
+        "kind": "transfer",
+        "account": "0x662F2F89Fa29D2F9747f3b363dE0CcD58878107F",
+        "category": 0,
+        "maxPayment": 0.3
+      },
+      {
+        "label": "Tock Agent (funds the daily demo job)",
+        "kind": "transfer",
+        "account": "0xfeAdfe9dbA27811943E90CA1b79D5F03Fe60AED6",
+        "category": 1,
+        "maxPayment": 0.3
+      },
+      {
+        "label": "Demo customer refill (keeps the hourly subscription paying)",
+        "kind": "transfer",
+        "account": "0xb642626c89eBe53EdcB26EE4804caa187C43A5E8",
+        "category": 1,
+        "maxPayment": 1
+      },
+      {
+        "label": "Tamias agent wallet (gas and x402 data purchases)",
+        "kind": "transfer",
+        "account": "0xec358c50D7079EB83Ae317D20052e6be80a2EF39",
+        "category": 2,
+        "maxPayment": 0.2
+      },
+      {
+        "label": "Owner distribution (always needs approval)",
+        "kind": "transfer",
+        "account": "0x10c4911e8415D3a297B29e350Bd492Aa3e1edd13",
+        "category": 3,
+        "maxPayment": 0
+      }
+    ],
+    "actions": [
+      {
+        "label": "Settle Standing order 0 now (when the scheduled settlement is late)",
+        "target": "standing",
+        "call": "execute(uint256 orderId)",
+        "args": [
+          0
+        ],
+        "category": 0,
+        "charge": 0
+      }
+    ],
+    "vaults": [
+      {
+        "label": "Steakhouse Prime USDC (Morpho, via App Kit Earn)",
+        "address": "0xbeef0016cb2fd5c352ea7ca08a9f54739dfa7298",
+        "cap": 5
+      }
+    ]
+  },
+  "gateway": {
+    "wallet": "0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE",
+    "minter": "0x2222222d7164433c4C09B0b0D809a9b52C04C205",
+    "domain": 26,
+    "api": "https://gateway-api.circle.com",
+    "recallMaxFee": 0.01,
+    "maxIntentBlocks": 200000,
+    "cap": 10,
+    "feeCategory": 2
+  },
+  "cctp": {
+    "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
+  },
+  "x402": {
+    "maxPerCycle": 2,
+    "services": [
+      {
+        "id": "yields",
+        "url": "https://arc.blockrun.ai/api/v1/defillama/yields",
+        "price": 0.006,
+        "what": "current APY and TVL of DeFi yield pools, filtered to Arc and Morpho USDC vaults (is parking cash worth it, and where?)",
+        "filter": "\"chain\":\"Arc\"|steakhouse|morpho",
+        "keep": [
+          "chain",
+          "project",
+          "symbol",
+          "tvlUsd",
+          "apy",
+          "apyBase",
+          "apyMean30d",
+          "pool",
+          "poolMeta"
+        ],
+        "maxRows": 12
+      },
+      {
+        "id": "fx",
+        "url": "https://arc.blockrun.ai/api/v1/defillama/prices/coingecko:euro-coin,coingecko:usd-coin",
+        "price": 0.002,
+        "what": "market prices of EURC and USDC (before paying or valuing anything in euros)"
+      }
+    ]
+  },
+  "rpcFallbacks": [
+    "https://5042.rpc.thirdweb.com"
+  ],
+  "_pending": "Not deployed. Needs the user's OK (main): mainnet deploy, funding, disabling standing-topup.timer, owner-distribution address (savings key vs MetaMask), extra float."
+}

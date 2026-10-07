@@ -71,8 +71,8 @@
   .t-policy { color: var(--info); background: var(--info-soft); }
   .t-reserve, .t-act { color: var(--accent); background: var(--accent-soft); }
   .why { margin: 8px 0 0; }
-  .refused { margin-top: 8px; font-size: 13px; color: var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 6px 10px; }
-  .bought { margin-top: 8px; font-size: 13px; color: var(--info); background: var(--info-soft); border-radius: 8px; padding: 6px 10px; }
+  .refused { overflow-wrap: anywhere; margin-top: 8px; font-size: 13px; color: var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 6px 10px; }
+  .bought { overflow-wrap: anywhere; margin-top: 8px; font-size: 13px; color: var(--info); background: var(--info-soft); border-radius: 8px; padding: 6px 10px; }
   details { margin-top: 8px; font-size: 13.5px; }
   details summary { cursor: pointer; color: var(--muted); }
   dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin: 8px 0 0; }
@@ -123,7 +123,7 @@ import { createPublicClient, http, fallback, keccak256, encodeAbiParameters, hex
 const params = new URLSearchParams(location.search);
 const CONFIG = await fetch("config.json").then((r) => r.json()).catch(() => ({}));
 const TAMIAS = params.get("tamias") ?? CONFIG.tamias;
-const RPCS = params.get("rpc") ? [params.get("rpc")] : CONFIG.rpcs ?? ["https://rpc.mainnet.arc.io", "https://arc.drpc.org", "https://5042.rpc.thirdweb.com"];
+const RPCS = params.get("rpc") ? [params.get("rpc")] : CONFIG.rpcs ?? ["https://rpc.mainnet.arc.io", "https://5042.rpc.thirdweb.com"];
 const EXPLORER = CONFIG.explorer ?? "https://explorer.arc.io";
 const ABI = await fetch("tamias-abi.json").then((r) => r.json());
 const client = createPublicClient({ transport: fallback(RPCS.map((u) => http(u, { retryCount: 2, batch: { batchSize: 20 } }))) });

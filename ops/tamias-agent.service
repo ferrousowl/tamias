@@ -1,0 +1,15 @@
+# Tamias treasurer: one check. The timer runs this every 5 minutes; the agent itself decides when a
+# full decision cycle is due (it picks its next look), and wakes early when something changes.
+# Install (user unit): cp tamias-agent.{service,timer} ~/.config/systemd/user/ && systemctl --user daemon-reload
+#                      systemctl --user enable --now tamias-agent.timer
+[Unit]
+Description=Tamias treasurer agent (Arc mainnet): check, and run a decision cycle when due
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/work/tameion-treasurer/agent
+Environment=TAMIAS_NETWORK=mainnet
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/nice -n 10 /usr/bin/node cycle.mjs --if-due
+TimeoutStartSec=25min
