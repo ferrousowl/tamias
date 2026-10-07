@@ -10,3 +10,4 @@ broadcast/
 *.key
 state/
 *.log
+web/data/
