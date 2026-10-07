@@ -75,7 +75,7 @@
       ]
     },
     "notes": [
-      "Keep operating accounts funded for roughly 1\u20133 days of their expected use; idle cash belongs in the treasury, where it stays available for whatever comes up. Top up when an account is heading below a day of runway before your next look, not before.",
+      "Keep operating accounts funded for roughly 1–3 days of their expected use; idle cash belongs in the treasury, where it stays available for whatever comes up. Top up when an account is heading below a day of runway before your next look, not before.",
       "Treasury policy on idle cash: money the operation will not need within about two weeks of refills should earn yield in a listed vault if the yield beats the gas of moving it there and back; keep at least a day of refills plus the floor as cash. Check current yields before parking or moving a meaningful amount.",
       "Owner distributions (payee 6) always need my approval: propose one only when the treasury holds clearly more than two weeks of the operation's needs.",
       "If a scheduled job or the hourly payment is overdue by more than 15 minutes, settle it directly (action 0) and say so."
@@ -126,7 +126,7 @@
         "periodHours": 24
       },
       {
-        "name": "agent operations (own gas, data purchases)",
+        "name": "agent operations (own gas, data purchases, Gateway fees)",
         "budget": 0.2,
         "periodHours": 24
       },
@@ -214,7 +214,9 @@
     "domain": 26,
     "api": "https://gateway-api.circle.com",
     "recallMaxFee": 0.01,
-    "maxIntentBlocks": 1600000
+    "maxIntentBlocks": 200000,
+    "cap": 10,
+    "feeCategory": 2
   },
   "cctp": {
     "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
@@ -249,7 +251,7 @@
       }
     ]
   },
-  "tamias": "0x0a1f618c5d22871d1b38b9c404e135aac046600e",
-  "deployBlock": 24771873,
-  "deployTx": "0xe81e2239aae845964488804f1861181c3ebd1d573e581d933e5e72abc0afdffa"
+  "tamias": "0x41c56fe4f55ec380c9257d4701b8fa6b85372493",
+  "deployBlock": 24771894,
+  "deployTx": "0xbb170156179805cf28e6dec109a3fa02e463301be71e853ad30c5a1f9fdc487a"
 }

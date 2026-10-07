@@ -54,11 +54,10 @@ export async function observe(cfg, pub) {
   ]);
   const categories = [];
   for (let i = 0n; i < nCat; i++) {
-    const [name, budget, spent, remaining, windowEnd] = await read(t, "budgetOf", [i]);
-    const c = await read(t, "getCategory", [i]);
+    const [name, budget, spent, remaining, windowEnd, period] = await read(t, "budgetOf", [i]);
     categories.push({
       id: Number(i), name, budget: fromUnits(budget), spent: fromUnits(spent), remaining: fromUnits(remaining),
-      periodHours: c.period / 3600, windowEndsInHours: +((Number(windowEnd) - now) / 3600).toFixed(2),
+      periodHours: Number(period) / 3600, windowEndsInHours: +((Number(windowEnd) - now) / 3600).toFixed(2),
     });
   }
   const payees = [];
@@ -79,7 +78,7 @@ export async function observe(cfg, pub) {
     const p = await read(t, "getProposal", [i]);
     proposals.push({
       id: Number(i), op: p.op, status: STATUS[p.status], ageHours: +((now - p.createdAt) / 3600).toFixed(2),
-      expired: p.status === 0 && now > p.createdAt + Number(ttl), ref: Number(p.ref), account: p.account,
+      expired: p.status === 0 && now > p.expiresAt, ref: Number(p.ref), account: p.account,
       token: p.token === EURC ? "EURC" : p.token === USDC ? "USDC" : null, amount: fromUnits(p.amount),
     });
   }
@@ -90,7 +89,7 @@ export async function observe(cfg, pub) {
     const gb = await gatewayBalances(cfg, pub, { treasury: cfg.tamias, agent });
     reserves.gateway = gb.treasury;
     reserves.agentGateway = gb.agent;
-    reserves.pendingIntents = readJson("gateway-pending.json", []).filter((p) => !p.minted).map((p) => ({ kind: p.kind, value: Number(p.bi.spec.value) / 1e6, at: p.at, error: p.error ?? null }));
+    reserves.pendingIntents = readJson("gateway-pending.json", []).filter((p) => !p.minted && !p.dead).map((p) => ({ kind: p.kind, value: Number(p.bi.spec.value) / 1e6, at: p.at, error: p.error ?? null }));
   }
   const nVault = await read(t, "vaultCount");
   for (let i = 0n; i < nVault; i++) {

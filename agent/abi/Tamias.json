@@ -31,6 +31,19 @@
  },
  {
   "type": "function",
+  "name": "INTENT_SUBMIT_BLOCKS",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint64",
+    "internalType": "uint64"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "MAX_RECORD",
   "inputs": [],
   "outputs": [
@@ -485,6 +498,11 @@
     "name": "windowEnd",
     "type": "uint256",
     "internalType": "uint256"
+   },
+   {
+    "name": "period",
+    "type": "uint256",
+    "internalType": "uint256"
    }
   ],
   "stateMutability": "view"
@@ -606,6 +624,16 @@
     "name": "maxIntentBlocks",
     "type": "uint32",
     "internalType": "uint32"
+   },
+   {
+    "name": "cap",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "feeCategory",
+    "type": "uint16",
+    "internalType": "uint16"
    }
   ],
   "stateMutability": "view"
@@ -653,52 +681,6 @@
      },
      {
       "name": "label",
-      "type": "string",
-      "internalType": "string"
-     }
-    ]
-   }
-  ],
-  "stateMutability": "view"
- },
- {
-  "type": "function",
-  "name": "getCategory",
-  "inputs": [
-   {
-    "name": "id",
-    "type": "uint256",
-    "internalType": "uint256"
-   }
-  ],
-  "outputs": [
-   {
-    "name": "",
-    "type": "tuple",
-    "internalType": "struct Tamias.Category",
-    "components": [
-     {
-      "name": "budget",
-      "type": "uint128",
-      "internalType": "uint128"
-     },
-     {
-      "name": "spent",
-      "type": "uint128",
-      "internalType": "uint128"
-     },
-     {
-      "name": "period",
-      "type": "uint32",
-      "internalType": "uint32"
-     },
-     {
-      "name": "windowStart",
-      "type": "uint40",
-      "internalType": "uint40"
-     },
-     {
-      "name": "name",
       "type": "string",
       "internalType": "string"
      }
@@ -833,6 +815,21 @@
       "name": "recordHash",
       "type": "bytes32",
       "internalType": "bytes32"
+     },
+     {
+      "name": "target",
+      "type": "bytes32",
+      "internalType": "bytes32"
+     },
+     {
+      "name": "proposer",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "expiresAt",
+      "type": "uint40",
+      "internalType": "uint40"
      }
     ]
    }
@@ -895,7 +892,7 @@
  },
  {
   "type": "function",
-  "name": "intentAuthorized",
+  "name": "intentAuth",
   "inputs": [
    {
     "name": "digest",
@@ -905,9 +902,14 @@
   ],
   "outputs": [
    {
-    "name": "",
-    "type": "bool",
-    "internalType": "bool"
+    "name": "epoch",
+    "type": "uint64",
+    "internalType": "uint64"
+   },
+   {
+    "name": "submitBy",
+    "type": "uint64",
+    "internalType": "uint64"
    }
   ],
   "stateMutability": "view"
@@ -1022,6 +1024,19 @@
  },
  {
   "type": "function",
+  "name": "intentEpoch",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint64",
+    "internalType": "uint64"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "isValidSignature",
   "inputs": [
    {
@@ -1082,6 +1097,114 @@
    }
   ],
   "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "ownerAuthorizeIntent",
+  "inputs": [
+   {
+    "name": "bi",
+    "type": "tuple",
+    "internalType": "struct Tamias.BurnIntent",
+    "components": [
+     {
+      "name": "maxBlockHeight",
+      "type": "uint256",
+      "internalType": "uint256"
+     },
+     {
+      "name": "maxFee",
+      "type": "uint256",
+      "internalType": "uint256"
+     },
+     {
+      "name": "spec",
+      "type": "tuple",
+      "internalType": "struct Tamias.TransferSpec",
+      "components": [
+       {
+        "name": "version",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "sourceDomain",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "destinationDomain",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "sourceContract",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationContract",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceToken",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationToken",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceDepositor",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationRecipient",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceSigner",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationCaller",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+       },
+       {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "hookData",
+        "type": "bytes",
+        "internalType": "bytes"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "outputs": [
+   {
+    "name": "digest",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   }
+  ],
+  "stateMutability": "nonpayable"
  },
  {
   "type": "function",
@@ -1256,6 +1379,19 @@
  },
  {
   "type": "function",
+  "name": "revokeIntent",
+  "inputs": [
+   {
+    "name": "digest",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
   "name": "seq",
   "inputs": [],
   "outputs": [
@@ -1404,26 +1540,18 @@
       "name": "maxIntentBlocks",
       "type": "uint32",
       "internalType": "uint32"
+     },
+     {
+      "name": "cap",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "feeCategory",
+      "type": "uint16",
+      "internalType": "uint16"
      }
     ]
-   }
-  ],
-  "outputs": [],
-  "stateMutability": "nonpayable"
- },
- {
-  "type": "function",
-  "name": "setIntent",
-  "inputs": [
-   {
-    "name": "digest",
-    "type": "bytes32",
-    "internalType": "bytes32"
-   },
-   {
-    "name": "ok",
-    "type": "bool",
-    "internalType": "bool"
    }
   ],
   "outputs": [],
@@ -1775,6 +1903,12 @@
     "internalType": "uint256"
    },
    {
+    "name": "detail",
+    "type": "bytes32",
+    "indexed": false,
+    "internalType": "bytes32"
+   },
+   {
     "name": "head",
     "type": "bytes32",
     "indexed": false,
@@ -1801,8 +1935,8 @@
   "inputs": [
    {
     "name": "field",
-    "type": "string",
-    "internalType": "string"
+    "type": "uint8",
+    "internalType": "uint8"
    }
   ]
  },
@@ -1907,6 +2041,22 @@
  },
  {
   "type": "error",
+  "name": "OverGatewayCap",
+  "inputs": [
+   {
+    "name": "balance",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "cap",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ]
+ },
+ {
+  "type": "error",
   "name": "OverPayeeLimit",
   "inputs": [
    {
@@ -1936,6 +2086,11 @@
     "internalType": "uint256"
    }
   ]
+ },
+ {
+  "type": "error",
+  "name": "ProposalChanged",
+  "inputs": []
  },
  {
   "type": "error",

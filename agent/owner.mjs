@@ -60,7 +60,10 @@ async function applyPolicy(p) {
   if (cfg.gateway?.wallet) {
     const g = await pub.readContract({ ...T(), functionName: "gateway" });
     if (g[0].toLowerCase() !== cfg.gateway.wallet.toLowerCase()) {
-      await write("setGateway", "setGateway", [{ wallet: cfg.gateway.wallet, minter: cfg.gateway.minter, domain: cfg.gateway.domain, recallMaxFee: toUnits(cfg.gateway.recallMaxFee), maxIntentBlocks: cfg.gateway.maxIntentBlocks }]);
+      await write("setGateway", "setGateway", [{
+        wallet: cfg.gateway.wallet, minter: cfg.gateway.minter, domain: cfg.gateway.domain, recallMaxFee: toUnits(cfg.gateway.recallMaxFee),
+        maxIntentBlocks: cfg.gateway.maxIntentBlocks, cap: toUnits(cfg.gateway.cap), feeCategory: cfg.gateway.feeCategory,
+      }]);
     }
   }
   const nVault = Number(await pub.readContract({ ...T(), functionName: "vaultCount" }));

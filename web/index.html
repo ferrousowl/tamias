@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tamias Decision Record</title>
+<meta name="description" content="Every decision an AI treasurer made on Arc, with its reasoning, read straight from the chain and verified.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='28' fill='%23a5662a'/><text x='32' y='43' font-size='30' text-anchor='middle' fill='white' font-family='Georgia'>T</text></svg>">
+<style>
+  :root {
+    --bg: #f7f5f0; --panel: #ffffff; --ink: #1d1b16; --muted: #6b665c; --line: #e4dfd3;
+    --accent: #a5662a; --accent-soft: #f3e6d6; --good: #2f7d4f; --good-soft: #e1f1e7;
+    --warn: #a15c00; --warn-soft: #fbecd5; --bad: #b3261e; --bad-soft: #f9e0de; --info: #2e5f9e; --info-soft: #e1ebf7;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15140f; --panel: #1f1d17; --ink: #ece7dc; --muted: #a39d90; --line: #34302a;
+      --accent: #d99a5b; --accent-soft: #3a2a1b; --good: #6fc794; --good-soft: #1c3226; --warn: #e3a64b; --warn-soft: #3a2c15;
+      --bad: #ef8a83; --bad-soft: #3d1f1d; --info: #8ab4ea; --info-soft: #1c2a3d;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15140f; --panel: #1f1d17; --ink: #ece7dc; --muted: #a39d90; --line: #34302a;
+    --accent: #d99a5b; --accent-soft: #3a2a1b; --good: #6fc794; --good-soft: #1c3226; --warn: #e3a64b; --warn-soft: #3a2c15;
+    --bad: #ef8a83; --bad-soft: #3d1f1d; --info: #8ab4ea; --info-soft: #1c2a3d;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans); }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 16px 64px; }
+  header h1 { font: 600 34px/1.15 var(--serif); margin: 0 0 6px; letter-spacing: .2px; }
+  header p { margin: 0; color: var(--muted); max-width: 760px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 14px; font-size: 13px; color: var(--muted); }
+  .meta code { font: 12px var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+  .badge.ok { color: var(--good); background: var(--good-soft); border-color: transparent; }
+  .badge.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
+  .badge.wait { color: var(--muted); }
+  h2 { font: 600 20px/1.3 var(--serif); margin: 36px 0 12px; }
+  h2 small { font: 13px var(--sans); color: var(--muted); margin-left: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .card .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .card .v { font: 600 24px/1.2 var(--sans); margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .s { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } header h1 { font-size: 28px; } }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 6px 0 2px; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .row { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; }
+  .row span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { padding: 7px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .list li:first-child { border-top: 0; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .filters button { font: 13px var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+  .filters button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .entry { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .entry .top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+  .entry .what { font-weight: 600; }
+  .entry .when { font-size: 12.5px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+  .tag { font: 600 11px/1 var(--sans); letter-spacing: .4px; text-transform: uppercase; padding: 4px 7px; border-radius: 6px; }
+  .t-pay { color: var(--good); background: var(--good-soft); }
+  .t-note { color: var(--muted); background: var(--line); }
+  .t-propose, .t-freeze { color: var(--warn); background: var(--warn-soft); }
+  .t-approve { color: var(--good); background: var(--good-soft); }
+  .t-reject { color: var(--bad); background: var(--bad-soft); }
+  .t-policy { color: var(--info); background: var(--info-soft); }
+  .t-reserve, .t-act { color: var(--accent); background: var(--accent-soft); }
+  .why { margin: 8px 0 0; }
+  .refused { margin-top: 8px; font-size: 13px; color: var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 6px 10px; }
+  .bought { margin-top: 8px; font-size: 13px; color: var(--info); background: var(--info-soft); border-radius: 8px; padding: 6px 10px; }
+  details { margin-top: 8px; font-size: 13.5px; }
+  details summary { cursor: pointer; color: var(--muted); }
+  dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; margin: 8px 0 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  .mono { font: 12px var(--mono); }
+  @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
+  .muted { color: var(--muted); }
+  footer { margin-top: 40px; font-size: 13px; color: var(--muted); }
+  .loading { color: var(--muted); padding: 20px 0; }
+  button.more { display: block; margin: 12px auto; font: 14px var(--sans); padding: 8px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Tamias</h1>
+    <p>An AI treasurer for a small business on Arc. It decides when to pay, how much, and when to ask a human, and it writes down why. It runs inside a contract that enforces the owner's budgets, so it cannot spend past them. Every decision below was read from the chain on this page, and the hash chain linking the decisions was checked here too.</p>
+    <div class="meta">
+      <span id="verify" class="badge wait">Checking the record…</span>
+      <span>Contract <code id="addr">…</code></span>
+      <span id="headinfo"></span>
+    </div>
+  </header>
+
+  <h2>Results <small id="window"></small></h2>
+  <div class="grid" id="metrics"><div class="loading">Reading the chain…</div></div>
+
+  <h2>What it may spend <small>enforced by the contract, not by a prompt</small></h2>
+  <div class="two">
+    <div class="card"><div class="k">Budgets this period</div><div id="budgets" class="loading">…</div></div>
+    <div class="card"><div class="k">Hard limits and where money can go</div><div id="limits" class="loading">…</div></div>
+  </div>
+
+  <h2>Decision record <small id="count"></small></h2>
+  <div class="filters" id="filters"></div>
+  <div id="log"><div class="loading">Reading the decision record…</div></div>
+  <button class="more" id="more" hidden>Show older</button>
+
+  <footer>
+    <p>Each record is a contract event. Its hash is folded into <code>head</code>, so editing, dropping or reordering a record changes the hash, and the check above fails. To run the same check yourself: <code>TAMIAS_NETWORK=mainnet node agent/verify.mjs</code> in the repository. Contract source and agent code: <a id="repo" href="https://github.com/ferrousowl/tamias">github.com/ferrousowl/tamias</a>.</p>
+  </footer>
+</div>
+
+<script type="module">
+import { createPublicClient, http, fallback, keccak256, encodeAbiParameters, hexToString, decodeFunctionData, getAbiItem, formatUnits } from "https://esm.sh/viem@2.57.2";
+
+const params = new URLSearchParams(location.search);
+const CONFIG = await fetch("config.json").then((r) => r.json()).catch(() => ({}));
+const TAMIAS = params.get("tamias") ?? CONFIG.tamias;
+const RPCS = params.get("rpc") ? [params.get("rpc")] : CONFIG.rpcs ?? ["https://rpc.mainnet.arc.io", "https://arc.drpc.org", "https://5042.rpc.thirdweb.com"];
+const EXPLORER = CONFIG.explorer ?? "https://explorer.arc.io";
+const ABI = await fetch("tamias-abi.json").then((r) => r.json());
+const client = createPublicClient({ transport: fallback(RPCS.map((u) => http(u, { retryCount: 2, batch: { batchSize: 20 } }))) });
+const T = { address: TAMIAS, abi: ABI };
+const read = (functionName, args = []) => client.readContract({ ...T, functionName, args });
+const OPS = ["note", "pay", "act", "propose", "approve", "reject", "freeze", "policy", "pay_to", "gateway", "vault in", "vault out", "intent"];
+const KINDS = ["transfer", "Tock gas", "CCTP", "Gateway deposit", "Gateway"];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const usd = (x, d = 2) => (x == null ? "–" : Number(x).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: Math.max(d, 4) }));
+const short = (h) => (h ? h.slice(0, 8) + "…" + h.slice(-6) : "");
+const ago = (iso) => { const s = (Date.now() - Date.parse(iso)) / 1000; return s < 90 ? "just now" : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 129600 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} d ago`; };
+
+$("addr").textContent = TAMIAS;
+$("addr").outerHTML = `<a href="${EXPLORER}/address/${TAMIAS}" target="_blank" rel="noopener"><code>${TAMIAS}</code></a>`;
+
+// ── read every record: a published snapshot first, then the newest ones straight from the chain ──
+const event = getAbiItem({ abi: ABI, name: "Recorded" });
+async function readRecords() {
+  const [head, seq, lastBlock] = await Promise.all([read("head"), read("seq"), read("lastBlock")]);
+  const snap = CONFIG.snapshot === false ? null : await fetch("data/log.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const have = new Map();
+  if (snap?.tamias?.toLowerCase() === TAMIAS.toLowerCase()) for (const r of snap.rows) have.set(r.seq, { ...r, amount: BigInt(r.amount), usdRaw: BigInt(r.usdRaw), op: Number(r.opId), ref: BigInt(r.ref) });
+  let block = lastBlock;
+  const seen = new Set();
+  while (block > 0n && !seen.has(block) && have.size < Number(seq)) {
+    seen.add(block);
+    const logs = await client.getLogs({ address: TAMIAS, event, fromBlock: block, toBlock: block });
+    if (!logs.length) break;
+    let fresh = false;
+    for (const l of logs) {
+      const s = Number(l.args.seq);
+      if (!have.has(s)) { fresh = true; have.set(s, { seq: s, op: l.args.op, ref: l.args.ref, by: l.args.by, token: l.args.token, amount: l.args.amount, usdRaw: l.args.usd, head: l.args.head, prevBlock: Number(l.args.prevBlock), block: Number(l.blockNumber), tx: l.transactionHash, recordHex: l.args.record, detail: l.args.detail }); }
+    }
+    $("log").innerHTML = `<div class="loading">Read ${have.size} of ${seq} records…</div>`;
+    if (!fresh && snap) break;
+    block = logs.reduce((m, l) => (l.args.prevBlock < m ? l.args.prevBlock : m), block);
+    if (block === logs[0].blockNumber) break;
+  }
+  const rows = [...have.values()].sort((a, b) => a.seq - b.seq);
+  return { head, seq: Number(seq), rows };
+}
+
+function replay(rows) {
+  let h = "0x" + "00".repeat(32);
+  const types = ["bytes32", "uint64", "uint8", "address", "uint256", "address", "uint256", "uint256", "bytes32", "bytes32"].map((type) => ({ type }));
+  for (const r of rows) {
+    h = keccak256(encodeAbiParameters(types, [h, BigInt(r.seq), r.op, r.by, BigInt(r.ref), r.token, r.amount, r.usdRaw, r.detail, keccak256(r.recordHex)]));
+    if (h.toLowerCase() !== String(r.head).toLowerCase()) return { ok: false, at: r.seq };
+  }
+  return { ok: true, head: h };
+}
+
+function parse(r) {
+  if (r.op === 7) {
+    try {
+      const { functionName: f, args: a } = decodeFunctionData({ abi: ABI, data: r.recordHex });
+      const u = (x) => usd(Number(x) / 1e6);
+      const title = {
+        setLimits: () => `Limits: auto-approve up to ${u(a[0])}, keep ${u(a[1])} cash, proposals expire in ${a[2] / 3600} h`,
+        setCategory: () => `Budget "${a[1]}": ${u(a[2])} per ${a[3] / 3600} h`,
+        setPayee: () => `Payee "${a[1].label}": ${KINDS[a[1].kind]}, up to ${u(a[1].maxPayment)} each${a[1].active ? "" : ", inactive"}`,
+        setAction: () => `Action "${a[1].label}"${a[1].active ? "" : " (inactive)"}`,
+        setVault: () => `Reserve vault "${a[1].label}", cap ${u(a[1].cap)}`,
+        setGateway: () => `Circle Gateway reserve configured`,
+        setUsdRate: () => `Token ${short(a[0])} counted at ${u(a[1])} USD`,
+        setAgent: () => `Agent key set to ${short(a[0])}`,
+        setFrozen: () => (a[0] ? "Agent frozen by the owner" : "Agent unfrozen by the owner"),
+        setIntent: () => `Gateway intent ${short(a[0])} ${a[1] ? "authorized" : "revoked"} by the owner`,
+        ownerCall: () => `Owner call to ${short(a[0])}`,
+        acceptOwnership: () => "Ownership transferred",
+      }[f];
+      return { policy: `${f}(${a.map((x) => (typeof x === "object" ? JSON.stringify(x, (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 160) : String(x))).join(", ")})`, title: title ? title() : f };
+    } catch { return { policy: "policy change" }; }
+  }
+  const text = (() => { try { return hexToString(r.recordHex); } catch { return ""; } })();
+  try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
+const { head, seq, rows } = await readRecords();
+const v = replay(rows);
+const verified = v.ok && v.head.toLowerCase() === head.toLowerCase() && rows.length === seq;
+$("verify").className = "badge " + (verified ? "ok" : "bad");
+$("verify").textContent = verified ? `✓ Record verified: ${seq} entries replay to the on-chain head` : `✗ Record does not verify (${rows.length}/${seq} read${v.ok ? "" : `, mismatch at #${v.at}`})`;
+$("headinfo").innerHTML = `head <code>${short(head)}</code>`;
+
+for (const r of rows) r.j = parse(r);
+const blocksNeeded = rows.filter((r) => !r.j.at).map((r) => r.block);
+const times = {};
+await Promise.all([...new Set(blocksNeeded)].slice(-60).map(async (b) => { try { times[b] = new Date(Number((await client.getBlock({ blockNumber: BigInt(b) })).timestamp) * 1000).toISOString(); } catch {} }));
+for (const r of rows) r.at = r.j.at ?? times[r.block] ?? null;
+
+// ── metrics ──
+const live = await (async () => {
+  const [cash, frozen, autoLimit, floor, nCat, nPay, nVault, gw] = await Promise.all([read("cash"), read("frozen"), read("autoLimit"), read("floor"), read("categoryCount"), read("payeeCount"), read("vaultCount"), read("gateway")]);
+  const cats = await Promise.all([...Array(Number(nCat)).keys()].map((i) => read("budgetOf", [BigInt(i)])));
+  const payees = await Promise.all([...Array(Number(nPay)).keys()].map((i) => read("getPayee", [BigInt(i)])));
+  const vaults = await Promise.all([...Array(Number(nVault)).keys()].map((i) => read("getVault", [BigInt(i)])));
+  let gateway = 0;
+  if (gw[0] !== "0x0000000000000000000000000000000000000000") {
+    gateway = Number(await client.readContract({ address: gw[0], abi: [{ type: "function", name: "availableBalance", stateMutability: "view", inputs: [{ type: "address" }, { type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "availableBalance", args: ["0x3600000000000000000000000000000000000000", TAMIAS] })) / 1e6;
+  }
+  let inVaults = 0;
+  for (const vt of vaults) {
+    const vabi = [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }, { type: "function", name: "convertToAssets", stateMutability: "view", inputs: [{ type: "uint256" }], outputs: [{ type: "uint256" }] }];
+    const sh = await client.readContract({ address: vt.vault, abi: vabi, functionName: "balanceOf", args: [TAMIAS] });
+    if (sh > 0n) inVaults += Number(await client.readContract({ address: vt.vault, abi: vabi, functionName: "convertToAssets", args: [sh] })) / 1e6;
+  }
+  return { cash: Number(cash) / 1e6, frozen, autoLimit: Number(autoLimit) / 1e6, floor: Number(floor) / 1e6, cats, payees, vaults, gateway, inVaults };
+})();
+
+const agentRows = rows.filter((r) => r.op !== 7);
+const by = (op) => rows.filter((r) => r.op === op);
+const paid = by(1).reduce((s, r) => s + Number(r.usdRaw) / 1e6, 0) + by(4).reduce((s, r) => s + Number(r.usdRaw) / 1e6, 0);
+const approved = by(4).length, rejected = by(5).length, proposed = by(3).length;
+const refusals = agentRows.reduce((s, r) => s + (r.j.refused?.length ?? 0), 0);
+const purchases = agentRows.flatMap((r) => r.j.bought ?? []).filter((b) => !b.error);
+const cycles = new Set(agentRows.map((r) => r.j.cycle).filter((c) => c != null)).size;
+const first = rows.find((r) => r.op !== 7)?.at;
+$("window").textContent = first ? `since ${new Date(first).toUTCString().slice(5, 22)} UTC` : "";
+const card = (k, v, s) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+$("metrics").innerHTML = [
+  card("Treasury funds", usd(live.cash + live.gateway + live.inVaults), `${usd(live.cash)} cash · ${usd(live.gateway)} Gateway · ${usd(live.inVaults)} vaults`),
+  card("Paid out", usd(paid), `${by(1).length} payments by the agent, ${approved} approved by the owner`),
+  card("Decision cycles", cycles, `${agentRows.length} records the agent wrote`),
+  card("Escalated to a human", proposed, proposed ? `${approved} approved · ${rejected} rejected${approved + rejected ? ` · ${Math.round((100 * approved) / (approved + rejected))}% agreement` : ""}` : "nothing exceeded its authority"),
+  card("Times the contract said no", refusals, "decisions refused in simulation, then revised"),
+  card("Data bought (x402)", purchases.length, purchases.length ? `${usd(purchases.reduce((s, b) => s + (b.price ?? 0), 0), 3)} USDC, paid per request` : "only when it would change a decision"),
+].join("");
+
+// ── policy ──
+$("budgets").innerHTML = live.cats.map(([name, budget, spent, remaining, windowEnd, period]) => {
+  const b = Number(budget) / 1e6, s = Number(spent) / 1e6;
+  const pct = b > 0 ? Math.min(100, (100 * s) / b) : (s > 0 ? 100 : 0);
+  return `<div style="margin-top:10px"><div class="row"><span>${esc(name)}</span><span>${usd(s)} / ${usd(b)}</span></div><div class="bar"><i style="width:${pct}%"></i></div><div class="s muted" style="font-size:12px">resets ${new Date(Number(windowEnd) * 1000).toUTCString().slice(5, 22)} UTC</div></div>`;
+}).join("") || "<p class='muted'>No budgets set.</p>";
+$("limits").innerHTML = `<ul class="list" style="margin-top:6px">
+  <li>No single payment above <b>${usd(live.autoLimit)} USDC</b> without the owner's signature.</li>
+  <li>Never below <b>${usd(live.floor)} USDC</b> cash on hand.</li>
+  <li>Agent ${live.frozen ? "<b style='color:var(--bad)'>frozen</b>" : "active"}. Anything else must be proposed to the owner.</li>
+  ${live.payees.map((p) => `<li>${esc(p.label)} <span class="muted">· ${KINDS[p.kind]} · up to ${usd(Number(p.maxPayment) / 1e6)} each${p.active ? "" : " · inactive"}</span></li>`).join("")}
+  ${live.vaults.map((vt) => `<li>Reserve vault: ${esc(vt.label)} <span class="muted">· cap ${usd(Number(vt.cap) / 1e6)}</span></li>`).join("")}
+</ul>`;
+
+// ── the log ──
+const FILTERS = { decisions: (r) => r.op !== 7, payments: (r) => [1, 4, 9, 10, 11, 12].includes(r.op), escalations: (r) => [3, 4, 5, 6].includes(r.op), holds: (r) => r.op === 0, policy: (r) => r.op === 7, everything: () => true };
+let filter = "decisions", shown = 25;
+$("filters").innerHTML = Object.keys(FILTERS).map((f) => `<button data-f="${f}" aria-pressed="${f === filter}">${f}</button>`).join("");
+$("filters").onclick = (e) => { const f = e.target.dataset.f; if (!f) return; filter = f; shown = 25; for (const b of $("filters").children) b.setAttribute("aria-pressed", b.dataset.f === f); render(); };
+$("more").onclick = () => { shown += 25; render(); };
+
+function headline(r) {
+  const j = r.j, d = j.do ?? {}, amt = Number(r.amount) / 1e6;
+  switch (r.op) {
+    case 0: return ["note", "Held", ""];
+    case 1: return ["pay", `Paid ${usd(amt)} ${d.token ?? "USDC"}`, `→ ${d.to ?? `payee ${r.ref}`}`];
+    case 2: return ["act", "Made a call", d.label ?? `action ${r.ref}`];
+    case 3: return ["propose", `Asked the owner #${r.ref}`, d.amount != null ? `${usd(d.amount)} ${d.token ?? ""} ${d.to ? "→ " + d.to : ""}` : (d.label ?? "")];
+    case 4: return ["approve", `Owner approved #${r.ref}`, j.note ?? ""];
+    case 5: return ["reject", `Owner rejected #${r.ref}`, j.note ?? ""];
+    case 6: return ["freeze", "Froze itself", ""];
+    case 7: return ["policy", "Owner set policy", j.title ?? ""];
+    case 9: return ["reserve", `Moved ${usd(amt)} USDC into Gateway`, "reserve"];
+    case 10: return ["reserve", `Parked ${usd(amt)} USDC`, d.label ?? `vault ${r.ref}`];
+    case 11: return ["reserve", `Took back ${usd(amt)} USDC`, d.label ?? `vault ${r.ref}`];
+    case 12: return ["reserve", `Authorized a Gateway transfer of ${usd(amt)}`, BigInt(r.ref) === (1n << 256n) - 1n ? "back to the treasury" : `to payee ${r.ref}`];
+    default: return ["note", OPS[r.op] ?? `op ${r.op}`, ""];
+  }
+}
+
+function render() {
+  const list = rows.filter(FILTERS[filter]).reverse();
+  $("count").textContent = `${list.length} entries`;
+  $("log").innerHTML = list.slice(0, shown).map((r) => {
+    const j = r.j, [tag, what, sub] = headline(r);
+    const det = [];
+    if (j.rule) det.push(["Rule", j.rule]);
+    if (j.alt) det.push(["Considered", j.alt]);
+    if (j.conf != null) det.push(["Confidence", Math.round(j.conf * 100) + "%"]);
+    if (j.expect) det.push(["Expected next", j.expect]);
+    if (j.assessment) det.push(["Situation", j.assessment]);
+    if (j.review) det.push(["Self-review", j.review]);
+    if (j.next) det.push(["Next look", `in ${j.next} min (its choice)`]);
+    if (j.policy) det.push(["Call", `<span class="mono">${esc(j.policy)}</span>`]);
+    if (j.model) det.push(["Model", esc(j.model)]);
+    if (j.inputs) det.push(["Inputs", `<span class="mono">${esc(j.inputs)}</span>`]);
+    det.push(["Transaction", r.tx ? `<a class="mono" href="${EXPLORER}/tx/${r.tx}" target="_blank" rel="noopener">${short(r.tx)}</a> · block ${r.block} · record #${r.seq}` : `block ${r.block} · record #${r.seq}`]);
+    return `<article class="entry">
+      <div class="top"><span class="tag t-${tag}">${tag}</span><span class="what">${esc(what)}</span><span class="muted">${esc(sub)}</span><span class="when" title="${r.at ?? ""}">${r.at ? ago(r.at) : ""}</span></div>
+      ${j.why ? `<p class="why">${esc(j.why)}</p>` : ""}
+      ${j.refused?.length ? `<div class="refused">Contract refused first: ${j.refused.map((x) => `${esc(x.tried)} → <b>${esc(x.contract)}</b>`).join("; ")}</div>` : ""}
+      ${j.bought?.length ? `<div class="bought">Bought information: ${j.bought.map((b) => `${esc(b.service)}${b.price != null ? ` for ${b.price} USDC` : ""}${b.error ? ` (failed: ${esc(b.error)})` : ""}`).join("; ")}</div>` : ""}
+      <details><summary>Details</summary><dl>${det.map(([k, val]) => `<dt>${k}</dt><dd>${typeof val === "string" && val.startsWith("<") ? val : esc(val)}</dd>`).join("")}</dl></details>
+    </article>`;
+  }).join("") || "<p class='muted'>Nothing here yet.</p>";
+  $("more").hidden = list.length <= shown;
+}
+render();
+</script>
+</body>
+</html>

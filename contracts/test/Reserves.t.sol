@@ -6,6 +6,7 @@ import {Tamias, IERC20} from "../src/Tamias.sol";
 
 interface IGatewayView {
     function availableBalance(address token, address depositor) external view returns (uint256);
+    function withdrawalDelay() external view returns (uint256);
 }
 
 interface IVaultView {
@@ -41,10 +42,11 @@ contract ReservesTest is Test {
         vm.startPrank(owner);
         t.setCategory(0, "vendors", 5e6, 1 days);
         t.setCategory(1, "agent data", 1e6, 1 days);
+        t.setCategory(2, "gateway fees", 0.1e6, 1 days);
         t.setPayee(0, _p(vendor, GATEWAY_MINTER, BASE, Tamias.Kind.Gateway, 0, 1.5e6, 0.02e6, BASE_USDC, "vendor on Base via Gateway"));
         t.setPayee(1, _p(agent, GATEWAY_WALLET, 0, Tamias.Kind.GatewayDeposit, 1, 0.5e6, 0, address(0), "agent x402 budget"));
         t.setPayee(2, _p(vendor, TOKEN_MESSENGER, BASE, Tamias.Kind.Cctp, 0, 1.5e6, 0, address(0), "vendor on Base via CCTP"));
-        t.setGateway(Tamias.GatewayConfig(GATEWAY_WALLET, GATEWAY_MINTER, ARC, 0.01e6, 100_000));
+        t.setGateway(Tamias.GatewayConfig(GATEWAY_WALLET, GATEWAY_MINTER, ARC, 0.01e6, 200_000, 5e6, 2));
         t.setVault(0, Tamias.Vault(STEAKHOUSE_USDC, true, 3e6, "Steakhouse Prime USDC (Morpho)"));
         vm.stopPrank();
     }
@@ -77,7 +79,7 @@ contract ReservesTest is Test {
     }
 
     function _recall(uint256 value) internal view returns (Tamias.BurnIntent memory bi) {
-        bi.maxBlockHeight = block.number + 50_000;
+        bi.maxBlockHeight = block.number + IGatewayView(GATEWAY_WALLET).withdrawalDelay() + 172_800;
         bi.maxFee = 0.005e6;
         bi.spec = Tamias.TransferSpec({
             version: 1,
@@ -142,8 +144,13 @@ contract ReservesTest is Test {
         assertEq(IERC20(USDC).balanceOf(address(t)), 7e6);
 
         vm.prank(agent);
+        vm.expectRevert(abi.encodeWithSelector(Tamias.OverGatewayCap.selector, 5.5e6, 5e6));
+        t.toGateway(2.5e6, "");
+
+        vm.deal(address(t), 1 ether);
+        vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(Tamias.BelowFloor.selector, 0.4e6, 0.5e6));
-        t.toGateway(6.6e6, "");
+        t.toGateway(0.6e6, "");
         vm.prank(stranger);
         vm.expectRevert(Tamias.NotAgent.selector);
         t.toGateway(1, "");
@@ -158,11 +165,13 @@ contract ReservesTest is Test {
         assertEq(got, d);
         assertEq(t.isValidSignature(d, hex"00"), bytes4(0x1626ba7e));
         assertEq(t.isValidSignature(keccak256("other"), ""), bytes4(0xffffffff));
-        (,, uint256 spent,,) = t.budgetOf(0);
-        assertEq(spent, 0, "a recall spends nothing");
+        (,, uint256 spent,,,) = t.budgetOf(0);
+        assertEq(spent, 0, "a recall spends no vendor budget");
+        (,, spent,,,) = t.budgetOf(2);
+        assertEq(spent, 0.005e6, "but its fee is charged to the Gateway fee budget");
 
         vm.prank(owner);
-        t.setIntent(d, false);
+        t.revokeIntent(d);
         assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff));
     }
 
@@ -171,62 +180,66 @@ contract ReservesTest is Test {
 
         bi = _recall(1e6);
         bi.spec.destinationRecipient = _b(stranger);
-        _expectBad(bi, RECALL, "recall destination");
+        _expectBad(bi, RECALL, 8);
 
         bi = _recall(1e6);
         bi.spec.sourceDepositor = _b(stranger);
-        _expectBad(bi, RECALL, "depositor");
+        _expectBad(bi, RECALL, 4);
 
         bi = _recall(1e6);
         bi.spec.sourceSigner = _b(agent);
-        _expectBad(bi, RECALL, "depositor");
+        _expectBad(bi, RECALL, 4);
 
         bi = _recall(1e6);
         bi.spec.sourceContract = _b(stranger);
-        _expectBad(bi, RECALL, "sourceContract");
+        _expectBad(bi, RECALL, 2);
 
         bi = _recall(1e6);
         bi.spec.sourceDomain = 0;
-        _expectBad(bi, RECALL, "sourceDomain");
+        _expectBad(bi, RECALL, 1);
 
         bi = _recall(1e6);
         bi.spec.sourceToken = _b(stranger);
-        _expectBad(bi, RECALL, "sourceToken");
+        _expectBad(bi, RECALL, 3);
 
         bi = _recall(1e6);
         bi.spec.version = 2;
-        _expectBad(bi, RECALL, "version");
+        _expectBad(bi, RECALL, 0);
 
         bi = _recall(1e6);
         bi.spec.hookData = hex"01";
-        _expectBad(bi, RECALL, "hookData");
+        _expectBad(bi, RECALL, 5);
 
         bi = _recall(0);
-        _expectBad(bi, RECALL, "value");
+        _expectBad(bi, RECALL, 6);
 
         bi = _recall(1e6);
         bi.maxFee = 0.02e6;
-        _expectBad(bi, RECALL, "maxFee");
+        _expectBad(bi, RECALL, 9);
 
         bi = _recall(1e6);
-        bi.maxBlockHeight = block.number + 100_001;
-        _expectBad(bi, RECALL, "maxBlockHeight");
+        bi.maxBlockHeight = block.number + IGatewayView(GATEWAY_WALLET).withdrawalDelay() + 200_001;
+        _expectBad(bi, RECALL, 7);
+
+        bi = _recall(1e6);
+        bi.maxBlockHeight = block.number + IGatewayView(GATEWAY_WALLET).withdrawalDelay() - 1;
+        _expectBad(bi, RECALL, 7);
 
         // a vendor intent may not be sent to a different payee's destination
         bi = _toVendor(1e6);
         bi.spec.destinationRecipient = _b(stranger);
-        _expectBad(bi, 0, "payee destination");
+        _expectBad(bi, 0, 11);
         bi = _toVendor(1e6);
         bi.spec.destinationDomain = ARC;
-        _expectBad(bi, 0, "payee destination");
+        _expectBad(bi, 0, 11);
         bi = _toVendor(1e6);
-        _expectBad(bi, 1, "payee kind");
+        _expectBad(bi, 1, 10);
         bi = _toVendor(1e6);
         bi.maxFee = 0.03e6;
-        _expectBad(bi, 0, "maxFee");
+        _expectBad(bi, 0, 9);
     }
 
-    function _expectBad(Tamias.BurnIntent memory bi, uint256 payee, string memory field) internal {
+    function _expectBad(Tamias.BurnIntent memory bi, uint256 payee, uint8 field) internal {
         vm.prank(agent);
         vm.expectRevert(abi.encodeWithSelector(Tamias.BadIntent.selector, field));
         t.authorizeIntent(bi, payee, "");
@@ -237,7 +250,7 @@ contract ReservesTest is Test {
         vm.prank(agent);
         bytes32 d = t.authorizeIntent(bi, 0, "pay the Base vendor from the Gateway reserve");
         assertEq(t.isValidSignature(d, ""), bytes4(0x1626ba7e));
-        (,, uint256 spent,,) = t.budgetOf(0);
+        (,, uint256 spent,,,) = t.budgetOf(0);
         assertEq(spent, 1.01e6, "value plus the most the fee can be");
 
         bi = _toVendor(1.5e6);
@@ -265,10 +278,11 @@ contract ReservesTest is Test {
 
     function test_authorizeIntent_needsGatewayConfigured() public {
         vm.prank(owner);
-        t.setGateway(Tamias.GatewayConfig(address(0), address(0), 0, 0, 0));
+        t.setGateway(Tamias.GatewayConfig(address(0), address(0), 0, 0, 0, 0, 0));
+        Tamias.BurnIntent memory bi = _recall(1e6);
         vm.prank(agent);
         vm.expectRevert(Tamias.BadParams.selector);
-        t.authorizeIntent(_recall(1e6), RECALL, "");
+        t.authorizeIntent(bi, RECALL, "");
         vm.prank(agent);
         vm.expectRevert(Tamias.BadParams.selector);
         t.toGateway(1e6, "");
@@ -281,7 +295,7 @@ contract ReservesTest is Test {
         t.pay(1, USDC, 0.3e6, "top up my x402 data budget");
         assertEq(IGatewayView(GATEWAY_WALLET).availableBalance(USDC, agent), 0.3e6);
         assertEq(IGatewayView(GATEWAY_WALLET).availableBalance(USDC, address(t)), 0);
-        (,, uint256 spent,,) = t.budgetOf(1);
+        (,, uint256 spent,,,) = t.budgetOf(1);
         assertEq(spent, 0.3e6);
         assertEq(IERC20(USDC).balanceOf(address(t)), 9.7e6);
     }
@@ -344,7 +358,9 @@ contract ReservesTest is Test {
     function test_setGateway_andPayee_validate() public {
         vm.startPrank(owner);
         vm.expectRevert(Tamias.BadParams.selector);
-        t.setGateway(Tamias.GatewayConfig(stranger, GATEWAY_MINTER, ARC, 0, 0));
+        t.setGateway(Tamias.GatewayConfig(stranger, GATEWAY_MINTER, ARC, 0, 0, 0, 0));
+        vm.expectRevert(Tamias.UnknownId.selector); // the fee category must exist
+        t.setGateway(Tamias.GatewayConfig(GATEWAY_WALLET, GATEWAY_MINTER, ARC, 0, 0, 0, 9));
         vm.expectRevert(Tamias.BadParams.selector);
         t.setPayee(3, _p(vendor, GATEWAY_MINTER, BASE, Tamias.Kind.Gateway, 0, 1e6, 0, address(0), "no token"));
         // a Gateway payee's minter lives on another chain, so it need not have code here

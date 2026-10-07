@@ -71,10 +71,10 @@ export async function settlePending(cfg, pub, agentWallet, { waitMs = 7 * 60e3 }
   const pending = readJson("gateway-pending.json", []);
   const done = [];
   for (const p of pending) {
-    if (p.minted) continue;
+    if (p.minted || p.dead) continue;
     const bi = { maxBlockHeight: BigInt(p.bi.maxBlockHeight), maxFee: BigInt(p.bi.maxFee), spec: { ...p.bi.spec, value: BigInt(p.bi.spec.value) } };
     const ok = await pub.readContract({ address: cfg.tamias, abi: TAMIAS_ABI, functionName: "isValidSignature", args: [p.digest, "0x00"] });
-    if (ok !== "0x1626ba7e") { p.error = "no longer authorized"; continue; }
+    if (ok !== "0x1626ba7e") { p.dead = true; p.error = "authorization lapsed (window passed or a brake was applied)"; continue; }
     const until = Date.now() + waitMs;
     let res = null, lastErr = "";
     while (!res && Date.now() < until) {

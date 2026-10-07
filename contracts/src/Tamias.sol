@@ -29,6 +29,8 @@ interface ITokenMessengerV2 {
 interface IGatewayWallet {
     function deposit(address token, uint256 value) external;
     function depositFor(address token, address depositor, uint256 value) external;
+    function availableBalance(address token, address depositor) external view returns (uint256);
+    function withdrawalDelay() external view returns (uint256);
 }
 
 /// @dev ERC-4626 vault, e.g. a Morpho USDC vault offered through Circle App Kit Earn.
@@ -117,6 +119,9 @@ contract Tamias {
         address token;
         uint128 amount;
         bytes32 recordHash; // the agent's reasoning, as recorded when it proposed
+        bytes32 target; // what the proposal pays or calls, fixed when proposed (see `_targetHash`)
+        address proposer; // the agent key that proposed it; a rotated-out key's proposals lapse
+        uint40 expiresAt;
     }
 
     /// @notice A place idle cash can wait and earn: an ERC-4626 vault holding USDC.
@@ -135,7 +140,17 @@ contract Tamias {
         address minter;
         uint32 domain; // this chain's Gateway/CCTP domain (Arc: 26)
         uint128 recallMaxFee; // most a recall to the treasury may pay in fees, token units
-        uint32 maxIntentBlocks; // how far ahead an authorized intent may stay valid
+        uint32 maxIntentBlocks; // how far beyond Gateway's withdrawal delay an intent may stay burnable
+        uint128 cap; // most USDC (token units) the agent may keep in the treasury's Gateway balance
+        uint16 feeCategory; // budget that pays Gateway fees on recalls
+    }
+
+    /// @dev An authorized burn intent. Gateway checks the signature only when the intent is
+    ///      submitted, so the authorization needs to live only minutes, and it lapses whenever the
+    ///      owner applies a brake (freeze, new agent key, payee or Gateway change).
+    struct IntentAuth {
+        uint64 epoch;
+        uint64 submitBy; // last block at which `isValidSignature` accepts it
     }
 
     /// @dev Circle Gateway burn intent (EIP-712, domain {name: "GatewayWallet", version: "1"}).
@@ -196,6 +211,9 @@ contract Tamias {
     );
 
     uint256 public constant MAX_RECORD = 8192;
+    /// @notice Blocks (~0.5 s each) an authorized intent stays submittable to Gateway: ~30 min,
+    ///         enough for Gateway's validator, which reads state up to 5 minutes old.
+    uint64 public constant INTENT_SUBMIT_BLOCKS = 3600;
     uint32 public constant MIN_PERIOD = 1 hours;
 
     // ──────────────────────────── storage ────────────────────────────
@@ -228,8 +246,10 @@ contract Tamias {
 
     Vault[] internal _vaults;
     GatewayConfig public gateway;
-    /// @notice Burn-intent digests this treasury has authorized; `isValidSignature` accepts only these.
-    mapping(bytes32 digest => bool) public intentAuthorized;
+    /// @notice Burn-intent digests this treasury has authorized; `isValidSignature` accepts only these,
+    ///         and only while their epoch is current and their submission window open.
+    mapping(bytes32 digest => IntentAuth) public intentAuth;
+    uint64 public intentEpoch;
 
     bool private transient _locked;
 
@@ -243,6 +263,7 @@ contract Tamias {
         address token,
         uint256 amount,
         uint256 usd,
+        bytes32 detail,
         bytes32 head,
         uint64 prevBlock,
         bytes record
@@ -268,8 +289,13 @@ contract Tamias {
     error Expired();
     error CallFailed(bytes reason);
     error Reentrancy();
-    error BadIntent(string field);
+    /// @notice A burn intent failed a check. field: 0 version, 1 sourceDomain, 2 sourceContract,
+    ///         3 sourceToken, 4 depositor/signer, 5 hookData, 6 value, 7 maxBlockHeight,
+    ///         8 recall destination, 9 maxFee, 10 payee kind, 11 payee destination.
+    error BadIntent(uint8 field);
     error OverVaultCap(uint256 assets, uint256 cap);
+    error OverGatewayCap(uint256 balance, uint256 cap);
+    error ProposalChanged();
 
     // ─────────────────────────── modifiers ───────────────────────────
 
@@ -328,30 +354,39 @@ contract Tamias {
         if (usd > p.maxPayment) revert OverPayeeLimit(usd, p.maxPayment);
         if (usd > autoLimit) revert OverAutoLimit(usd, autoLimit);
         _charge(p.category, usd, true);
+        uint256 before = cash();
         _send(p, token, amount);
-        _checkFloor();
-        _record(OP_PAY, payeeId, token, amount, usd, record);
+        _checkFloor(before);
+        _record(OP_PAY, payeeId, token, amount, usd, _b32(p.account), record);
     }
 
-    /// @notice Make one of the owner's pre-written calls.
+    /// @notice Make one of the owner's pre-written calls. It is charged its declared cost or the
+    ///         USDC it actually took out of the treasury, whichever is more. Calls to a priced
+    ///         token are refused: an allowance would let value leave later, unseen by the budget.
     function act(uint256 actionId, bytes calldata record) external onlyAgent bounded(record) nonReentrant {
         Action storage a = _action(actionId);
         if (!a.active) revert Inactive();
-        if (a.charge > autoLimit) revert OverAutoLimit(a.charge, autoLimit);
-        if (a.charge > 0) _charge(a.category, a.charge, true);
+        if (usdRate[a.target] != 0) revert BadParams();
+        uint256 before = cash();
         _call(a.target, 0, a.data);
-        _checkFloor();
-        _record(OP_ACT, actionId, address(0), 0, a.charge, record);
+        uint256 afterCash = cash();
+        uint256 usd = before > afterCash ? before - afterCash : 0;
+        if (usd < a.charge) usd = a.charge;
+        if (usd > autoLimit) revert OverAutoLimit(usd, autoLimit);
+        if (usd > 0) _charge(a.category, usd, true);
+        _checkFloor(before);
+        _record(OP_ACT, actionId, address(0), 0, usd, _actionHash(a), record);
     }
 
     /// @notice Record a decision that moves nothing: holding, deferring, waiting for revenue.
     ///         Allowed while frozen, so the agent can still explain itself.
     function note(bytes calldata record) external bounded(record) {
         if (msg.sender != agent) revert NotAgent();
-        _record(OP_NOTE, 0, address(0), 0, 0, record);
+        _record(OP_NOTE, 0, address(0), 0, 0, bytes32(0), record);
     }
 
-    /// @notice Ask the owner for something the agent may not do alone.
+    /// @notice Ask the owner for something the agent may not do alone. What it pays or calls is
+    ///         fixed now: if the owner later changes that payee or action, the proposal lapses.
     /// @param op OP_PAY (listed payee `ref`), OP_PAY_TO (unlisted `account`) or OP_ACT (action `ref`)
     function propose(uint8 op, uint256 ref, address account, address token, uint256 amount, bytes calldata record)
         external
@@ -359,60 +394,80 @@ contract Tamias {
         bounded(record)
         returns (uint256 id)
     {
-        uint256 usd;
+        (Proposal memory pr, uint256 usd) = _draft(op, ref, account, token, amount);
+        pr.recordHash = keccak256(record);
+        id = _proposals.length;
+        _proposals.push(pr);
+        _logProposal(id, pr, usd, record);
+    }
+
+    function _logProposal(uint256 id, Proposal memory pr, uint256 usd, bytes calldata record) internal {
+        _record(OP_PROPOSE, id, pr.token, pr.amount, usd, keccak256(abi.encode(pr.op, uint256(pr.ref), pr.target)), record);
+    }
+
+    /// @dev Validate a proposal and fix what it is bound to.
+    function _draft(uint8 op, uint256 ref, address account, address token, uint256 amount)
+        internal
+        view
+        returns (Proposal memory pr, uint256 usd)
+    {
         if (op == OP_PAY) {
-            _payee(ref);
-            if (amount == 0) revert BadParams();
+            Payee storage p = _payee(ref);
+            if (p.kind == Kind.Gateway || amount == 0) revert BadParams(); // Gateway payees: authorizeIntent
             usd = usdValue(token, amount);
+            pr.target = _payeeHash(p);
+            pr.ref = uint64(ref);
         } else if (op == OP_PAY_TO) {
             if (account == address(0) || account == address(this) || amount == 0) revert BadParams();
             usd = usdValue(token, amount);
+            pr.target = _b32(account);
+            pr.account = account;
         } else if (op == OP_ACT) {
-            usd = _action(ref).charge;
+            Action storage a = _action(ref);
+            usd = a.charge;
+            pr.target = _actionHash(a);
+            pr.ref = uint64(ref);
             token = address(0);
             amount = 0;
         } else {
             revert BadParams();
         }
         if (amount > type(uint128).max) revert BadParams();
-        id = _proposals.length;
-        _proposals.push(
-            Proposal({
-                op: op,
-                status: Status.Pending,
-                createdAt: uint40(block.timestamp),
-                ref: uint64(ref),
-                account: op == OP_PAY_TO ? account : address(0),
-                token: token,
-                amount: uint128(amount),
-                recordHash: keccak256(record)
-            })
-        );
-        _record(OP_PROPOSE, id, token, amount, usd, record);
+        pr.op = op;
+        pr.status = Status.Pending;
+        pr.createdAt = uint40(block.timestamp);
+        pr.expiresAt = uint40(block.timestamp + proposalTtl);
+        pr.token = token;
+        pr.amount = uint128(amount);
+        pr.proposer = msg.sender;
     }
 
     /// @notice The agent stops itself, e.g. when what it sees no longer makes sense to it.
-    ///         Only the owner can unfreeze.
+    ///         Only the owner can unfreeze. Any Gateway intent it authorized lapses too.
     function freeze(bytes calldata record) external bounded(record) {
         if (msg.sender != agent) revert NotAgent();
         frozen = true;
-        _record(OP_FREEZE, 1, address(0), 0, 0, record);
+        ++intentEpoch;
+        _record(OP_FREEZE, 1, address(0), 0, 0, bytes32(0), record);
     }
 
     // ─────────────────────── agent: reserves ───────────────────────
     // Moving cash between the treasury and its own reserves spends nothing, so it is not charged to
-    // a budget; the floor still applies to what stays on hand.
+    // a budget (Gateway fees are); the floor still applies to what stays on hand.
 
     /// @notice Move cash into the treasury's Circle Gateway balance (a unified USDC balance that
     ///         can later be spent on any Gateway chain, but only through `authorizeIntent`).
     function toGateway(uint256 amount, bytes calldata record) external onlyAgent bounded(record) nonReentrant {
         address w = gateway.wallet;
         if (w == address(0) || amount == 0) revert BadParams();
+        uint256 before = cash();
         _approve(w, amount);
         IGatewayWallet(w).deposit(USDC, amount);
         _approve(w, 0);
-        _checkFloor();
-        _record(OP_GATEWAY_IN, 0, USDC, amount, 0, record);
+        uint256 held = IGatewayWallet(w).availableBalance(USDC, address(this));
+        if (held > gateway.cap) revert OverGatewayCap(held, gateway.cap);
+        _checkFloor(before);
+        _record(OP_GATEWAY_IN, 0, USDC, amount, 0, _b32(w), record);
     }
 
     /// @notice Park cash in a listed vault so it earns while it waits.
@@ -425,13 +480,14 @@ contract Tamias {
         Vault storage v = _vault(vaultId);
         if (!v.active) revert Inactive();
         if (assets == 0) revert BadParams();
+        uint256 before = cash();
         _approve(v.vault, assets);
         IERC4626(v.vault).deposit(assets, address(this));
         _approve(v.vault, 0);
         uint256 held = IERC4626(v.vault).convertToAssets(IERC4626(v.vault).balanceOf(address(this)));
         if (held > v.cap) revert OverVaultCap(held, v.cap);
-        _checkFloor();
-        _record(OP_VAULT_IN, vaultId, USDC, assets, 0, record);
+        _checkFloor(before);
+        _record(OP_VAULT_IN, vaultId, USDC, assets, 0, _b32(v.vault), record);
     }
 
     /// @notice Take cash back from a vault. Allowed for inactive vaults, so money is never stuck.
@@ -444,14 +500,15 @@ contract Tamias {
         Vault storage v = _vault(vaultId);
         if (assets == 0) revert BadParams();
         IERC4626(v.vault).withdraw(assets, address(this), address(this));
-        _record(OP_VAULT_OUT, vaultId, USDC, assets, 0, record);
+        _record(OP_VAULT_OUT, vaultId, USDC, assets, 0, _b32(v.vault), record);
     }
 
     /// @notice Authorize one Circle Gateway burn intent against the treasury's Gateway balance.
     ///         The intent is checked field by field: it must spend this treasury's balance on this
-    ///         chain, and either come back to this treasury (`payeeId == RECALL`) or go to a listed
-    ///         Gateway payee, within its limits and its budget like any other payment. Only the
-    ///         digest of an intent that passed is ever accepted by `isValidSignature`.
+    ///         chain, and either come back to this treasury (`payeeId == RECALL`, its fee charged
+    ///         to the Gateway fee budget) or go to a listed Gateway payee, within that payee's
+    ///         limits and budget like any other payment. `isValidSignature` then accepts its
+    ///         digest for `INTENT_SUBMIT_BLOCKS`, and only until the owner applies any brake.
     /// @return digest the EIP-712 digest to submit to Gateway with `contractSigner: true`
     function authorizeIntent(BurnIntent calldata bi, uint256 payeeId, bytes calldata record)
         external
@@ -462,76 +519,84 @@ contract Tamias {
     {
         GatewayConfig memory g = gateway;
         TransferSpec calldata t = bi.spec;
-        if (g.wallet == address(0)) revert BadParams();
-        if (t.version != 1) revert BadIntent("version");
-        if (t.sourceDomain != g.domain) revert BadIntent("sourceDomain");
-        if (t.sourceContract != _b32(g.wallet)) revert BadIntent("sourceContract");
-        if (t.sourceToken != _b32(USDC)) revert BadIntent("sourceToken");
-        if (t.sourceDepositor != _b32(address(this)) || t.sourceSigner != _b32(address(this))) {
-            revert BadIntent("depositor");
+        _checkSource(bi, g);
+        if (t.hookData.length != 0) revert BadIntent(5);
+        if (t.value == 0) revert BadIntent(6);
+        // Gateway refuses intents that could still be burned after a trustless withdrawal could
+        // complete; anything much longer only keeps an authorization alive for no reason.
+        uint256 delay = IGatewayWallet(g.wallet).withdrawalDelay();
+        if (bi.maxBlockHeight < block.number + delay || bi.maxBlockHeight > block.number + delay + g.maxIntentBlocks) {
+            revert BadIntent(7);
         }
-        if (t.hookData.length != 0) revert BadIntent("hookData");
-        if (t.value == 0) revert BadIntent("value");
-        if (bi.maxBlockHeight > block.number + g.maxIntentBlocks) revert BadIntent("maxBlockHeight");
 
         uint256 usd;
         if (payeeId == RECALL) {
             if (
                 t.destinationDomain != g.domain || t.destinationContract != _b32(g.minter)
                     || t.destinationToken != _b32(USDC) || t.destinationRecipient != _b32(address(this))
-            ) revert BadIntent("recall destination");
-            if (bi.maxFee > g.recallMaxFee) revert BadIntent("maxFee");
+            ) revert BadIntent(8);
+            if (bi.maxFee > g.recallMaxFee) revert BadIntent(9);
+            usd = bi.maxFee;
+            if (usd > 0) _charge(g.feeCategory, usd, true);
         } else {
             Payee storage p = _payee(payeeId);
             if (!p.active) revert Inactive();
-            if (p.kind != Kind.Gateway) revert BadIntent("payee kind");
+            if (p.kind != Kind.Gateway) revert BadIntent(10);
             if (
                 t.destinationDomain != p.domain || t.destinationContract != _b32(p.via)
                     || t.destinationToken != _b32(p.remoteToken) || t.destinationRecipient != _b32(p.account)
-            ) revert BadIntent("payee destination");
-            if (bi.maxFee > p.maxFee) revert BadIntent("maxFee");
+            ) revert BadIntent(11);
+            if (bi.maxFee > p.maxFee) revert BadIntent(9);
             usd = t.value + bi.maxFee; // USDC token units = micro-USD; charge the worst case
             if (usd > p.maxPayment) revert OverPayeeLimit(usd, p.maxPayment);
             if (usd > autoLimit) revert OverAutoLimit(usd, autoLimit);
             _charge(p.category, usd, true);
         }
-        digest = intentDigest(bi);
-        intentAuthorized[digest] = true;
-        _record(OP_INTENT, payeeId, USDC, t.value, usd, record);
+        digest = _authorize(bi);
+        _record(OP_INTENT, payeeId, USDC, t.value, usd, digest, record);
     }
 
     // ───────────────────────── owner: review ─────────────────────────
 
     /// @notice Carry out a proposal. The owner's approval replaces the agent's limits, but the
-    ///         spend still counts against its category so the agent sees the budget used.
+    ///         spend still counts against its category so the agent sees the budget used. A
+    ///         proposal lapses if it expired, if its payee or action changed since, or if the
+    ///         agent key that proposed it has been replaced.
     function approveProposal(uint256 id, bytes calldata note_) external onlyOwner nonReentrant {
         Proposal storage pr = _proposal(id);
         if (pr.status != Status.Pending) revert NotPending();
-        if (block.timestamp > uint256(pr.createdAt) + proposalTtl) revert Expired();
+        if (block.timestamp > pr.expiresAt) revert Expired();
+        if (pr.proposer != agent) revert ProposalChanged();
         pr.status = Status.Approved;
         uint256 usd;
+        bytes32 detail;
         if (pr.op == OP_PAY) {
             Payee storage p = _payee(pr.ref);
+            if (!p.active || _payeeHash(p) != pr.target) revert ProposalChanged();
             usd = usdValue(pr.token, pr.amount);
             _charge(p.category, usd, false);
             _send(p, pr.token, pr.amount);
+            detail = _b32(p.account);
         } else if (pr.op == OP_PAY_TO) {
             usd = usdValue(pr.token, pr.amount);
             _transfer(pr.token, pr.account, pr.amount);
+            detail = _b32(pr.account);
         } else {
             Action storage a = _action(pr.ref);
+            if (!a.active || _actionHash(a) != pr.target) revert ProposalChanged();
             usd = a.charge;
             if (usd > 0) _charge(a.category, usd, false);
             _call(a.target, 0, a.data);
+            detail = pr.target;
         }
-        _record(OP_APPROVE, id, pr.token, pr.amount, usd, note_);
+        _record(OP_APPROVE, id, pr.token, pr.amount, usd, detail, note_);
     }
 
     function rejectProposal(uint256 id, bytes calldata note_) external onlyOwner {
         Proposal storage pr = _proposal(id);
         if (pr.status != Status.Pending) revert NotPending();
         pr.status = Status.Rejected;
-        _record(OP_REJECT, id, pr.token, pr.amount, 0, note_);
+        _record(OP_REJECT, id, pr.token, pr.amount, 0, pr.target, note_);
     }
 
     // ───────────────────────── owner: policy ─────────────────────────
@@ -540,11 +605,13 @@ contract Tamias {
 
     function setAgent(address agent_) external onlyOwner {
         agent = agent_;
+        ++intentEpoch;
         _policy();
     }
 
     function setFrozen(bool frozen_) external onlyOwner {
         frozen = frozen_;
+        if (frozen_) ++intentEpoch;
         _policy();
     }
 
@@ -572,9 +639,12 @@ contract Tamias {
             c.name = name;
             c.budget = budget;
             if (c.period != period) {
+                // a new period starts a new window, but what was spent in the current one carries
+                // over: changing the period must never hand the agent a fresh budget
+                (, uint256 used) = _window(c);
                 c.period = period;
                 c.windowStart = uint40(block.timestamp);
-                c.spent = 0;
+                c.spent = uint128(used);
             }
         }
         _policy();
@@ -590,11 +660,13 @@ contract Tamias {
         } else if (p.kind != Kind.Transfer && (p.via == address(0) || p.via.code.length == 0)) {
             revert BadParams();
         }
-        if (id == _payees.length) _payees.push(p);
-        else {
+        if (id == _payees.length) {
+            _payees.push(p);
+        } else {
             _payee(id);
             _payees[id] = p;
         }
+        ++intentEpoch; // an intent authorized for the old payee must not outlive the change
         _policy();
     }
 
@@ -602,8 +674,9 @@ contract Tamias {
     function setAction(uint256 id, Action calldata a) external onlyOwner {
         if (a.target == address(this) || a.target.code.length == 0) revert BadParams();
         _category(a.category);
-        if (id == _actions.length) _actions.push(a);
-        else {
+        if (id == _actions.length) {
+            _actions.push(a);
+        } else {
             _action(id);
             _actions[id] = a;
         }
@@ -611,26 +684,40 @@ contract Tamias {
     }
 
     function setGateway(GatewayConfig calldata g) external onlyOwner {
-        if (g.wallet != address(0) && (g.wallet.code.length == 0 || g.minter.code.length == 0)) revert BadParams();
+        if (g.wallet != address(0)) {
+            if (g.wallet.code.length == 0 || g.minter.code.length == 0) revert BadParams();
+            _category(g.feeCategory);
+        }
         gateway = g;
+        ++intentEpoch;
         _policy();
     }
 
     /// @param id an existing vault to change, or `vaultCount()` to add one
     function setVault(uint256 id, Vault calldata v) external onlyOwner {
         if (v.vault.code.length == 0 || IERC4626(v.vault).asset() != USDC) revert BadParams();
-        if (id == _vaults.length) _vaults.push(v);
-        else {
+        if (id == _vaults.length) {
+            _vaults.push(v);
+        } else {
             _vault(id);
             _vaults[id] = v;
         }
         _policy();
     }
 
-    /// @notice Authorize or revoke a Gateway intent digest directly. Revoking takes effect at
-    ///         Gateway within minutes, and cannot recall an attestation already issued.
-    function setIntent(bytes32 digest, bool ok) external onlyOwner {
-        intentAuthorized[digest] = ok;
+    /// @notice The owner may authorize a Gateway intent by hand, e.g. to recover the Gateway
+    ///         balance without an agent. It must still be a burn intent spending this treasury's
+    ///         own Gateway balance: the contract computes the digest itself, so an owner can never
+    ///         be talked into blessing an arbitrary hash (which other protocols would accept as
+    ///         this treasury's signature).
+    function ownerAuthorizeIntent(BurnIntent calldata bi) external onlyOwner returns (bytes32 digest) {
+        _checkSource(bi, gateway);
+        digest = _authorize(bi);
+        _policy();
+    }
+
+    function revokeIntent(bytes32 digest) external onlyOwner {
+        delete intentAuth[digest];
         _policy();
     }
 
@@ -649,6 +736,7 @@ contract Tamias {
     function transferOwnership(address to) external onlyOwner {
         pendingOwner = to;
         emit OwnershipTransferStarted(owner, to);
+        _policy();
     }
 
     function acceptOwnership() external {
@@ -672,12 +760,12 @@ contract Tamias {
     function budgetOf(uint256 id)
         external
         view
-        returns (string memory name, uint256 budget, uint256 spent, uint256 remaining, uint256 windowEnd)
+        returns (string memory name, uint256 budget, uint256 spent, uint256 remaining, uint256 windowEnd, uint256 period)
     {
         Category storage c = _category(id);
         (uint256 start, uint256 used) = _window(c);
         remaining = used >= c.budget ? 0 : c.budget - used;
-        return (c.name, c.budget, used, remaining, start + c.period);
+        return (c.name, c.budget, used, remaining, start + c.period, c.period);
     }
 
     function categoryCount() external view returns (uint256) {
@@ -696,8 +784,8 @@ contract Tamias {
         return _proposals.length;
     }
 
-    function getCategory(uint256 id) external view returns (Category memory) {
-        return _category(id);
+    function vaultCount() external view returns (uint256) {
+        return _vaults.length;
     }
 
     function getPayee(uint256 id) external view returns (Payee memory) {
@@ -712,9 +800,16 @@ contract Tamias {
         return _proposal(id);
     }
 
-    /// @notice ERC-1271: the treasury "signs" exactly the Gateway intents it has authorized.
+    function getVault(uint256 id) external view returns (Vault memory) {
+        return _vault(id);
+    }
+
+    /// @notice ERC-1271: the treasury "signs" exactly the Gateway intents it has authorized, while
+    ///         their window is open and no brake has been applied since.
     function isValidSignature(bytes32 hash, bytes calldata) external view returns (bytes4) {
-        return intentAuthorized[hash] ? ERC1271_OK : bytes4(0xffffffff);
+        IntentAuth memory a = intentAuth[hash];
+        bool ok = a.submitBy != 0 && !frozen && a.epoch == intentEpoch && block.number <= a.submitBy;
+        return ok ? ERC1271_OK : bytes4(0xffffffff);
     }
 
     /// @notice EIP-712 digest of a Gateway burn intent, as Gateway computes it.
@@ -745,14 +840,6 @@ contract Tamias {
         );
         bytes32 structHash = keccak256(abi.encode(BURN_INTENT_TYPEHASH, bi.maxBlockHeight, bi.maxFee, specHash));
         return keccak256(abi.encodePacked("\x19\x01", GATEWAY_DOMAIN_SEPARATOR, structHash));
-    }
-
-    function vaultCount() external view returns (uint256) {
-        return _vaults.length;
-    }
-
-    function getVault(uint256 id) external view returns (Vault memory) {
-        return _vault(id);
     }
 
     /// @notice USDC on hand in token units (6 decimals).
@@ -801,6 +888,34 @@ contract Tamias {
         }
     }
 
+    /// @dev The source side of a burn intent must be this treasury's balance in this chain's
+    ///      GatewayWallet, in USDC.
+    function _checkSource(BurnIntent calldata bi, GatewayConfig memory g) internal view {
+        TransferSpec calldata t = bi.spec;
+        if (g.wallet == address(0)) revert BadParams();
+        if (t.version != 1) revert BadIntent(0);
+        if (t.sourceDomain != g.domain) revert BadIntent(1);
+        if (t.sourceContract != _b32(g.wallet)) revert BadIntent(2);
+        if (t.sourceToken != _b32(USDC)) revert BadIntent(3);
+        if (t.sourceDepositor != _b32(address(this)) || t.sourceSigner != _b32(address(this))) {
+            revert BadIntent(4);
+        }
+    }
+
+    function _authorize(BurnIntent calldata bi) internal returns (bytes32 digest) {
+        digest = intentDigest(bi);
+        intentAuth[digest] = IntentAuth(intentEpoch, uint64(block.number) + INTENT_SUBMIT_BLOCKS);
+    }
+
+    /// @dev What a proposal to pay this payee is bound to: where and how the money would go.
+    function _payeeHash(Payee storage p) internal view returns (bytes32) {
+        return keccak256(abi.encode(p.account, p.via, p.domain, p.kind, p.category, p.remoteToken));
+    }
+
+    function _actionHash(Action storage a) internal view returns (bytes32) {
+        return keccak256(abi.encode(a.target, a.category, a.data));
+    }
+
     function _approve(address spender, uint256 amount) internal {
         if (!IERC20(USDC).approve(spender, amount)) revert CallFailed("");
     }
@@ -821,24 +936,33 @@ contract Tamias {
         if (!ok) revert CallFailed(ret);
     }
 
-    function _checkFloor() internal view {
+    /// @dev The floor binds only when the operation took cash out (an EURC payment does not).
+    function _checkFloor(uint256 before) internal view {
         uint256 c = cash();
-        if (c < floor) revert BelowFloor(c, floor);
+        if (c < before && c < floor) revert BelowFloor(c, floor);
     }
 
     function _policy() internal {
-        _record(OP_POLICY, 0, address(0), 0, 0, msg.data);
+        _record(OP_POLICY, 0, address(0), 0, 0, bytes32(0), msg.data);
     }
 
-    function _record(uint8 op, uint256 ref, address token, uint256 amount, uint256 usd, bytes calldata record)
-        internal
-    {
+    /// @dev `detail` binds what the record is about (the recipient, the intent digest, the
+    ///      proposal's target) into the hash chain, so the agent's own text cannot misstate it.
+    function _record(
+        uint8 op,
+        uint256 ref,
+        address token,
+        uint256 amount,
+        uint256 usd,
+        bytes32 detail,
+        bytes calldata record
+    ) internal {
         uint64 s = seq++;
-        bytes32 h = keccak256(abi.encode(head, s, op, msg.sender, ref, token, amount, usd, keccak256(record)));
+        bytes32 h = keccak256(abi.encode(head, s, op, msg.sender, ref, token, amount, usd, detail, keccak256(record)));
         head = h;
         uint64 prev = lastBlock;
         lastBlock = uint64(block.number);
-        emit Recorded(s, op, ref, msg.sender, token, amount, usd, h, prev, record);
+        emit Recorded(s, op, ref, msg.sender, token, amount, usd, detail, h, prev, record);
     }
 
     function _category(uint256 id) internal view returns (Category storage) {

@@ -108,7 +108,7 @@ contract TamiasTest is Test {
     }
 
     function _remaining(uint256 cat) internal view returns (uint256 r) {
-        (,,, r,) = t.budgetOf(cat);
+        (,,, r,,) = t.budgetOf(cat);
     }
 
     // ── paying ──
@@ -202,13 +202,14 @@ contract TamiasTest is Test {
         // the window is aligned to its start: 1.5 days later we are 12 h into the second window
         uint256 start = block.timestamp;
         vm.warp(start + 1.5 days);
-        (,, uint256 spent, uint256 remaining, uint256 windowEnd) = t.budgetOf(INFRA);
+        (,, uint256 spent, uint256 remaining, uint256 windowEnd,) = t.budgetOf(INFRA);
         assertEq(spent, 0);
         assertEq(remaining, 2e6);
         assertEq(windowEnd, start + 2 days);
         vm.prank(agent);
         t.pay(1, USDC, 0.2e6, "c");
-        assertEq(t.getCategory(INFRA).windowStart, start + 1 days);
+        (,,,, uint256 end, uint256 per) = t.budgetOf(INFRA);
+        assertEq(end - per, start + 1 days);
     }
 
     function test_pay_neverBelowTheFloor() public {
@@ -324,7 +325,7 @@ contract TamiasTest is Test {
         t.approveProposal(id, "yes");
         assertEq(t.cash(), 0.2e6);
         assertEq(_remaining(CONTRACTORS), 0);
-        (,, uint256 spent,,) = t.budgetOf(CONTRACTORS);
+        (,, uint256 spent,,,) = t.budgetOf(CONTRACTORS);
         assertEq(spent, 9.8e6);
     }
 
@@ -411,7 +412,7 @@ contract TamiasTest is Test {
                 firstSeq = r.seq;
                 h = r.head;
             } else {
-                h = keccak256(abi.encode(h, r.seq, r.op, r.by, r.ref, r.token, r.amount, r.usd, keccak256(r.record)));
+                h = keccak256(abi.encode(h, r.seq, r.op, r.by, r.ref, r.token, r.amount, r.usd, r.detail, keccak256(r.record)));
                 assertEq(h, r.head, "replayed head matches");
             }
             n++;
@@ -447,7 +448,7 @@ contract TamiasTest is Test {
     }
 
     bytes32 constant RECORDED =
-        keccak256("Recorded(uint64,uint8,uint256,address,address,uint256,uint256,bytes32,uint64,bytes)");
+        keccak256("Recorded(uint64,uint8,uint256,address,address,uint256,uint256,bytes32,bytes32,uint64,bytes)");
 
     struct Rec {
         uint64 seq;
@@ -457,6 +458,7 @@ contract TamiasTest is Test {
         address token;
         uint256 amount;
         uint256 usd;
+        bytes32 detail;
         bytes32 head;
         uint64 prevBlock;
         bytes record;
@@ -466,8 +468,8 @@ contract TamiasTest is Test {
         r.seq = uint64(uint256(l.topics[1]));
         r.op = uint8(uint256(l.topics[2]));
         r.ref = uint256(l.topics[3]);
-        (r.by, r.token, r.amount, r.usd, r.head, r.prevBlock, r.record) =
-            abi.decode(l.data, (address, address, uint256, uint256, bytes32, uint64, bytes));
+        (r.by, r.token, r.amount, r.usd, r.detail, r.head, r.prevBlock, r.record) =
+            abi.decode(l.data, (address, address, uint256, uint256, bytes32, bytes32, uint64, bytes));
     }
 
     // ── owner ──
@@ -510,15 +512,17 @@ contract TamiasTest is Test {
         vm.stopPrank();
     }
 
-    function test_owner_changingAPeriodRestartsTheWindow() public {
+    function test_owner_changingAPeriodKeepsWhatWasSpent() public {
         vm.prank(agent);
         t.pay(1, USDC, 1e6, "");
         vm.prank(owner);
         t.setCategory(INFRA, "infra", 3e6, 1 days); // same period: spending kept
         assertEq(_remaining(INFRA), 2e6);
         vm.prank(owner);
-        t.setCategory(INFRA, "infra", 3e6, 2 days); // new period: fresh window
-        assertEq(_remaining(INFRA), 3e6);
+        t.setCategory(INFRA, "infra", 3e6, 2 days); // new period starts now, spending carried
+        assertEq(_remaining(INFRA), 2e6);
+        (,,,, uint256 end, uint256 per) = t.budgetOf(INFRA);
+        assertEq(end - per, block.timestamp);
     }
 
     function test_owner_canWithdrawAnything() public {

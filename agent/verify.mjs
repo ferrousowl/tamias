@@ -34,10 +34,10 @@ export function replay(records) {
   let h = "0x" + "00".repeat(32);
   const types = [
     { type: "bytes32" }, { type: "uint64" }, { type: "uint8" }, { type: "address" }, { type: "uint256" },
-    { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "bytes32" },
+    { type: "address" }, { type: "uint256" }, { type: "uint256" }, { type: "bytes32" }, { type: "bytes32" },
   ];
   for (const r of records) {
-    h = keccak256(encodeAbiParameters(types, [h, r.seq, r.op, r.by, r.ref, r.token, r.amount, r.usd, keccak256(r.record)]));
+    h = keccak256(encodeAbiParameters(types, [h, r.seq, r.op, r.by, r.ref, r.token, r.amount, r.usd, r.detail, keccak256(r.record)]));
     if (h !== r.head) return { ok: false, at: Number(r.seq), computed: h, logged: r.head };
   }
   return { ok: true, head: h };
@@ -74,7 +74,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   console.log(JSON.stringify(summarize(records), null, 1));
   const i = process.argv.indexOf("--json");
   if (i > 0) {
-    const rows = records.map((x) => ({ seq: Number(x.seq), op: OPS[x.op], ref: Number(x.ref), by: x.by, token: x.token, amount: x.amount.toString(), usd: fromUnits(x.usd), block: Number(x.block), tx: x.tx, record: hexToString(x.record) }));
+    const rows = records.map((x) => ({
+      seq: Number(x.seq), opId: x.op, op: OPS[x.op], ref: x.ref.toString(), by: x.by, token: x.token, amount: x.amount.toString(),
+      usdRaw: x.usd.toString(), usd: fromUnits(x.usd), detail: x.detail, head: x.head, prevBlock: Number(x.prevBlock), block: Number(x.block), tx: x.tx, recordHex: x.record,
+    }));
     fs.writeFileSync(process.argv[i + 1], JSON.stringify({ tamias: cfg.tamias, head, rows }, null, 1));
   }
   if (!(r.ok && r.head === head) || records.length !== Number(seq)) process.exit(1);
