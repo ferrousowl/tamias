@@ -122,7 +122,19 @@ export function forecast(snap, cfg) {
   }
   for (const o of snap.standing.orders) if (o.active && o.dueInMinutes < -10) flags.push(`Standing order ${o.id} is ${-o.dueInMinutes} min overdue`);
 
-  const totalNow = Object.values(accounts).reduce((s, a) => s + a.now, 0);
+  const reserveNow = (snap.reserves?.gateway?.available ?? 0) + (snap.reserves?.vaults ?? []).reduce((s, v) => s + v.held, 0);
+  const totalNow = Object.values(accounts).reduce((s, a) => s + a.now, 0) + reserveNow;
   const totalPerDay = Object.values(accounts).reduce((s, a) => s + a.perDay, 0);
-  return { accounts, upcoming, flags, operation: { totalNow: +totalNow.toFixed(4), netPerDay: +totalPerDay.toFixed(4) } };
+  for (const p of snap.reserves?.pendingIntents ?? []) flags.push(`Gateway ${p.kind} of ${p.value} USDC authorized at ${p.at} is not minted yet${p.error ? ` (${p.error.slice(0, 120)})` : ""}`);
+  const treasuryFunds = snap.treasury.cash + reserveNow;
+  // What the treasury has to keep funding: the outflows of every account it refills. Much of that
+  // circulates back as revenue; the operation's real cost is the net rate.
+  const grossRefillsPerDay = -Object.entries(accounts).filter(([k, a]) => k !== "treasury" && a.perDay < 0).reduce((s, [, a]) => s + a.perDay, 0);
+  const netCostPerDay = Math.max(0, -totalPerDay);
+  return { accounts, upcoming, flags, operation: {
+    totalNow: +totalNow.toFixed(4), netPerDay: +totalPerDay.toFixed(4), treasuryFunds: +treasuryFunds.toFixed(4), reserves: +reserveNow.toFixed(4),
+    grossRefillsPerDay: +grossRefillsPerDay.toFixed(4), netCostPerDay: +netCostPerDay.toFixed(4),
+    daysOfRefillsCovered: grossRefillsPerDay > 0 ? +(treasuryFunds / grossRefillsPerDay).toFixed(1) : null,
+    daysOfNetCostCovered: netCostPerDay > 0 ? +(treasuryFunds / netCostPerDay).toFixed(1) : null,
+  } };
 }

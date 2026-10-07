@@ -17,7 +17,7 @@ const cfg = loadConfig();
 const { pub, wallet } = clients(cfg);
 const owner = wallet(cfg.keys.owner);
 const T = () => ({ address: cfg.tamias, abi: TAMIAS_ABI });
-const KIND = { transfer: 0, "tock-gas": 1, cctp: 2 };
+const KIND = { transfer: 0, "tock-gas": 1, cctp: 2, "gateway-deposit": 3, gateway: 4 };
 const [cmd, ...rest] = process.argv.slice(2);
 const note = (s) => toHex(new TextEncoder().encode(s ?? ""));
 
@@ -25,7 +25,14 @@ async function write(label, functionName, args, extra = {}) {
   return sendAndWait(pub, label, owner.writeContract({ ...T(), functionName, args, ...extra, ...(await fees(pub)) }));
 }
 
-const resolve = (x) => (x === "tock" ? cfg.business.tock.address : x === "standing" ? cfg.business.standing.address : x === "cctp" ? cfg.cctp?.tokenMessenger : x);
+const resolve = (x) =>
+  x === "tock" ? cfg.business.tock.address
+  : x === "standing" ? cfg.business.standing.address
+  : x === "cctp" ? cfg.cctp?.tokenMessenger
+  : x === "gateway-wallet" ? cfg.gateway?.wallet
+  : x === "gateway-minter" ? cfg.gateway?.minter
+  : x === "agent" ? addressOfKey(cfg.keys.agent)
+  : x;
 
 function actionCalldata(a) {
   const item = parseAbiItem(`function ${a.call}`);
@@ -45,9 +52,21 @@ async function applyPolicy(p) {
     if (i < nPay) continue;
     const payee = {
       account: resolve(x.account), via: x.via ? resolve(x.via) : "0x0000000000000000000000000000000000000000", domain: x.domain ?? 0,
-      kind: KIND[x.kind], category: x.category, active: true, maxPayment: toUnits(x.maxPayment), maxFee: toUnits(x.maxFee ?? 0), label: x.label,
+      kind: KIND[x.kind], category: x.category, active: true, maxPayment: toUnits(x.maxPayment), maxFee: toUnits(x.maxFee ?? 0),
+      remoteToken: x.remoteToken ?? "0x0000000000000000000000000000000000000000", label: x.label,
     };
     await write(`payee ${i} ${x.label}`, "setPayee", [BigInt(i), payee]);
+  }
+  if (cfg.gateway?.wallet) {
+    const g = await pub.readContract({ ...T(), functionName: "gateway" });
+    if (g[0].toLowerCase() !== cfg.gateway.wallet.toLowerCase()) {
+      await write("setGateway", "setGateway", [{ wallet: cfg.gateway.wallet, minter: cfg.gateway.minter, domain: cfg.gateway.domain, recallMaxFee: toUnits(cfg.gateway.recallMaxFee), maxIntentBlocks: cfg.gateway.maxIntentBlocks }]);
+    }
+  }
+  const nVault = Number(await pub.readContract({ ...T(), functionName: "vaultCount" }));
+  for (const [i, v] of (p.vaults ?? []).entries()) {
+    if (i < nVault) continue;
+    await write(`vault ${i} ${v.label}`, "setVault", [BigInt(i), { vault: v.address, active: true, cap: toUnits(v.cap), label: v.label }]);
   }
   const nAct = Number(await pub.readContract({ ...T(), functionName: "actionCount" }));
   for (const [i, a] of (p.actions ?? []).entries()) {

@@ -1,7 +1,11 @@
 // Observe: read everything the treasurer needs to know, straight from the chain.
 // Returns plain JSON (numbers in USDC, not wei) so it can go into a prompt and a record.
 import { getAbiItem } from "viem";
-import { fromNative, fromUnits, TAMIAS_ABI, TOCK_ABI, STANDING_ABI, ERC20_ABI, EURC, USDC } from "./lib.mjs";
+import { parseAbi } from "viem";
+import { fromNative, fromUnits, TAMIAS_ABI, TOCK_ABI, STANDING_ABI, ERC20_ABI, EURC, USDC, readJson } from "./lib.mjs";
+import { gatewayBalances } from "./gateway.mjs";
+
+const VAULT_ABI = parseAbi(["function balanceOf(address) view returns (uint256)", "function convertToAssets(uint256) view returns (uint256)"]);
 
 /** Average fee actually paid per run, from the last ~3 h of JobRan events (public RPCs cap a
  *  log query at a few thousand blocks, so walk back in chunks). */
@@ -80,6 +84,22 @@ export async function observe(cfg, pub) {
     });
   }
 
+  // ── reserves: Circle Gateway balance and ERC-4626 vaults ──
+  const reserves = { gateway: null, agentGateway: null, vaults: [], pendingIntents: [] };
+  if (cfg.gateway?.wallet) {
+    const gb = await gatewayBalances(cfg, pub, { treasury: cfg.tamias, agent });
+    reserves.gateway = gb.treasury;
+    reserves.agentGateway = gb.agent;
+    reserves.pendingIntents = readJson("gateway-pending.json", []).filter((p) => !p.minted).map((p) => ({ kind: p.kind, value: Number(p.bi.spec.value) / 1e6, at: p.at, error: p.error ?? null }));
+  }
+  const nVault = await read(t, "vaultCount");
+  for (let i = 0n; i < nVault; i++) {
+    const v = await read(t, "getVault", [i]);
+    const shares = await pub.readContract({ address: v.vault, abi: VAULT_ABI, functionName: "balanceOf", args: [cfg.tamias] });
+    const held = shares > 0n ? await pub.readContract({ address: v.vault, abi: VAULT_ABI, functionName: "convertToAssets", args: [shares] }) : 0n;
+    reserves.vaults.push({ id: Number(i), label: v.label, address: v.vault, active: v.active, cap: fromUnits(v.cap), held: fromUnits(held) });
+  }
+
   // ── the business: wallets, scheduled jobs, subscriptions ──
   const wallets = {};
   for (const w of cfg.business.wallets) {
@@ -126,6 +146,7 @@ export async function observe(cfg, pub) {
       autoLimit: fromUnits(autoLimit), floor: fromUnits(floor), proposalTtlHours: Number(ttl) / 3600,
       records: Number(seq), head, categories, payees, actions, proposals,
     },
+    reserves,
     wallets,
     tock: { gasBalances, jobs },
     standing: { orders },

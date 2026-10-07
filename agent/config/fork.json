@@ -2,7 +2,7 @@
   "rpc": "http://127.0.0.1:8547",
   "chainId": 5042,
   "explorer": "https://explorer.arc.io",
-  "model": "sonnet",
+  "model": "opus",
   "effort": "medium",
   "keys": {
     "agent": "tamias-agent-fork",
@@ -76,6 +76,7 @@
     },
     "notes": [
       "Keep operating accounts funded for roughly 1\u20133 days of their expected use; idle cash belongs in the treasury, where it stays available for whatever comes up. Top up when an account is heading below a day of runway before your next look, not before.",
+      "Treasury policy on idle cash: money the operation will not need within about two weeks of refills should earn yield in a listed vault if the yield beats the gas of moving it there and back; keep at least a day of refills plus the floor as cash. Check current yields before parking or moving a meaningful amount.",
       "Owner distributions (payee 6) always need my approval: propose one only when the treasury holds clearly more than two weeks of the operation's needs.",
       "If a scheduled job or the hourly payment is overdue by more than 15 minutes, settle it directly (action 0) and say so."
     ]
@@ -125,7 +126,7 @@
         "periodHours": 24
       },
       {
-        "name": "agent operations (own gas)",
+        "name": "agent operations (own gas, data purchases)",
         "budget": 0.2,
         "periodHours": 24
       },
@@ -173,7 +174,7 @@
         "maxPayment": 1
       },
       {
-        "label": "Tamias agent gas",
+        "label": "Tamias agent wallet (gas and x402 data purchases)",
         "kind": "transfer",
         "account": "0xaEB6B667360e28A55Ce7C45FEd2E5b340F865513",
         "category": 2,
@@ -198,9 +199,57 @@
         "category": 0,
         "charge": 0
       }
+    ],
+    "vaults": [
+      {
+        "label": "Steakhouse Prime USDC (Morpho, via App Kit Earn)",
+        "address": "0xbeef0016cb2fd5c352ea7ca08a9f54739dfa7298",
+        "cap": 5
+      }
     ]
   },
-  "tamias": "0x4ba379f6e790cf770dd6327ce3f9704026c178c4",
-  "deployBlock": 24771854,
-  "deployTx": "0x7890e2f23b1978fd9ff82bf4e6a4dfb4c5a57019108168ea2d1789624e730958"
+  "gateway": {
+    "wallet": "0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE",
+    "minter": "0x2222222d7164433c4C09B0b0D809a9b52C04C205",
+    "domain": 26,
+    "api": "https://gateway-api.circle.com",
+    "recallMaxFee": 0.01,
+    "maxIntentBlocks": 1600000
+  },
+  "cctp": {
+    "tokenMessenger": "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
+  },
+  "x402": {
+    "maxPerCycle": 2,
+    "services": [
+      {
+        "id": "yields",
+        "url": "https://arc.blockrun.ai/api/v1/defillama/yields",
+        "price": 0.006,
+        "what": "current APY and TVL of DeFi yield pools, filtered to Arc and Morpho USDC vaults (is parking cash worth it, and where?)",
+        "filter": "\"chain\":\"Arc\"|steakhouse|morpho",
+        "keep": [
+          "chain",
+          "project",
+          "symbol",
+          "tvlUsd",
+          "apy",
+          "apyBase",
+          "apyMean30d",
+          "pool",
+          "poolMeta"
+        ],
+        "maxRows": 12
+      },
+      {
+        "id": "fx",
+        "url": "https://arc.blockrun.ai/api/v1/defillama/prices/coingecko:euro-coin,coingecko:usd-coin",
+        "price": 0.002,
+        "what": "market prices of EURC and USDC (before paying or valuing anything in euros)"
+      }
+    ]
+  },
+  "tamias": "0x0a1f618c5d22871d1b38b9c404e135aac046600e",
+  "deployBlock": 24771873,
+  "deployTx": "0xe81e2239aae845964488804f1861181c3ebd1d573e581d933e5e72abc0afdffa"
 }

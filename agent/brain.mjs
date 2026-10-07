@@ -9,7 +9,10 @@ import crypto from "crypto";
 
 const CLAUDE = process.env.CLAUDE_BIN || path.join(os.homedir(), ".local/bin/claude");
 
-export const DECISION_TYPES = ["pay", "act", "propose_pay", "propose_pay_to", "propose_act", "note", "freeze"];
+export const DECISION_TYPES = [
+  "pay", "act", "propose_pay", "propose_pay_to", "propose_act", "note", "freeze",
+  "to_gateway", "recall_gateway", "to_vault", "from_vault", "buy_info",
+];
 
 export const SCHEMA = {
   type: "object",
@@ -25,11 +28,13 @@ export const SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["type", "payee", "action", "to", "token", "amount", "why", "rule", "alternatives", "confidence", "expect"],
+        required: ["type", "payee", "action", "vault", "service", "to", "token", "amount", "why", "rule", "alternatives", "confidence", "expect"],
         properties: {
           type: { type: "string", enum: DECISION_TYPES },
           payee: { type: ["integer", "null"], description: "payee id for pay / propose_pay" },
           action: { type: ["integer", "null"], description: "action id for act / propose_act" },
+          vault: { type: ["integer", "null"], description: "vault id for to_vault / from_vault" },
+          service: { type: ["string", "null"], description: "catalog id for buy_info" },
           to: { type: ["string", "null"], description: "0x address for propose_pay_to only" },
           token: { type: ["string", "null"], enum: ["USDC", "EURC", null] },
           amount: { type: ["number", "null"], description: "token amount, e.g. 0.25" },
@@ -61,6 +66,8 @@ How to decide:
 - Use the forecast, but check it against what you see: when the observed and scheduled rates disagree, say which one you trust and why.
 - Choose when to look next (next_check_minutes): sooner when something is close to its minimum, overdue, or just changed; later when everything has days of runway.
 - Escalate (propose) when a payment exceeds your limits, when a payee is not on the list, or when the owner should weigh in (e.g. distributing surplus to the owner). Freeze yourself if what you see is inconsistent in a way that suggests a fault or compromise.
+- Reserves: cash the operation will not need soon can wait in a reserve. to_vault parks it in a yield vault and from_vault takes it back in one transaction; to_gateway moves it into the treasury's Circle Gateway balance (spendable on other chains) and recall_gateway brings it back, which takes several minutes. Only park money if what it earns or enables is worth more than the gas of moving it there and back, and keep enough cash on hand for everything due before your next look.
+- buy_info buys a piece of information from the catalog (paid per request in USDC from your own gas wallet). Buy only when the answer could change a decision you are about to make, and say what you expect to learn. After a purchase you will be asked again with the answer; do not buy the same thing twice in a cycle.
 - If nothing needs doing, return exactly one "note" decision that says why holding is right.
 - Each decision needs a checkable "expect" for the next cycle. Next cycle you will see your previous expectations next to what actually happened: learn from misses.
 Amounts are token units (USDC has 6 decimals; write 0.25, not 250000). Be concrete and brief.`;
@@ -78,13 +85,27 @@ export function briefing({ cfg, snap, fc, recent, cycle }) {
   const open = t.proposals.filter((p) => p.status === "pending");
   lines.push(`\nProposals: ${open.length} pending` + (t.proposals.length ? "\n" + t.proposals.slice(-6).map((p) => `- #${p.id} op ${p.op} ref ${p.ref} ${p.amount} ${p.token ?? ""} → ${p.status}${p.expired ? " (expired)" : ""}, ${p.ageHours} h old`).join("\n") : ""));
 
+  const r = snap.reserves ?? {};
+  lines.push(`\n## Reserves (the treasury's own money outside its cash)`);
+  lines.push(r.gateway ? `- Circle Gateway balance: ${r.gateway.available} USDC available${r.gateway.withdrawing ? `, ${r.gateway.withdrawing} withdrawing` : ""}` : "- Circle Gateway: not configured");
+  for (const p of r.pendingIntents ?? []) lines.push(`  · pending ${p.kind} of ${p.value} USDC since ${p.at}${p.error ? ` — last error: ${p.error.slice(0, 120)}` : ""}`);
+  for (const v of r.vaults ?? []) lines.push(`- vault ${v.id} "${v.label}": ${v.held} USDC held, cap ${v.cap}${v.active ? "" : " (INACTIVE: withdraw only)"}`);
+  if (!(r.vaults ?? []).length) lines.push("- no vaults listed");
+  lines.push(`Treasury funds (cash + reserves): ${fc.operation.treasuryFunds} USDC.`);
+  if (cfg.x402?.services?.length) {
+    lines.push(`\n## Information you can buy (buy_info, x402; your gas wallet holds ${snap.wallets.agentGas?.usdc ?? "?"} USDC)`);
+    lines.push(cfg.x402.services.map((x) => `- "${x.id}": ${x.what} (≈${x.price} USDC)`).join("\n"));
+  }
+
   lines.push(`\n## Accounts and forecast (USDC; perDay negative = outflow)`);
   for (const [k, a] of Object.entries(fc.accounts)) {
     const label = k.startsWith("wallet:") ? snap.wallets[k.slice(7)]?.label : k.startsWith("tockGas:") ? snap.tock.gasBalances[k.slice(8)]?.label : "treasury cash";
     lines.push(`- ${k} (${label}): now ${a.now}; min ${a.minimum}; rate ${a.perDay}/day [scheduled ${a.structuralPerDay}, observed ${a.observedPerDay ?? "n/a"} over ${a.observedHours} h]; ${a.daysToMinimum == null ? "not draining" : `${a.daysToMinimum} days to minimum`}; 24h→${a.in24h}, 7d→${a.in7d}`);
     for (const b of a.basis) lines.push(`    · ${b}`);
   }
-  lines.push(`Whole operation: ${fc.operation.totalNow} USDC across all accounts, net ${fc.operation.netPerDay}/day.`);
+  const op = fc.operation;
+  lines.push(`Whole operation: ${op.totalNow} USDC across all accounts and reserves, net ${op.netPerDay}/day.`);
+  lines.push(`The accounts the treasury refills pay out ${op.grossRefillsPerDay}/day in total (much of it comes back as revenue); the operation's net cost is ${op.netCostPerDay}/day. Treasury funds (${op.treasuryFunds}) cover ${op.daysOfRefillsCovered ?? "∞"} days of refills, or ${op.daysOfNetCostCovered ?? "∞"} days of net cost.`);
   lines.push(`\nScheduled in the next 24 h:\n` + (fc.upcoming.length ? fc.upcoming.slice(0, 8).map((u) => `- in ${u.inMinutes} min: ${u.what}`).join("\n") : "- nothing"));
   lines.push(`\nFlags:\n` + (fc.flags.length ? fc.flags.map((f) => `- ${f}`).join("\n") : "- none"));
 

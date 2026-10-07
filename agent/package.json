@@ -8,6 +8,9 @@
     "verify": "node verify.mjs"
   },
   "dependencies": {
+    "@x402/core": "^2.28.0",
+    "@x402/evm": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
     "viem": "^2.57.2"
   }
 }
