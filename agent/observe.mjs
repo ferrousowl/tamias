@@ -2,7 +2,7 @@
 // Returns plain JSON (numbers in USDC, not wei) so it can go into a prompt and a record.
 import { getAbiItem } from "viem";
 import { parseAbi } from "viem";
-import { fromNative, fromUnits, TAMIAS_ABI, TOCK_ABI, STANDING_ABI, ERC20_ABI, EURC, USDC, readJson } from "./lib.mjs";
+import { fromNative, fromUnits, TAMIAS_ABI, TOCK_ABI, STANDING_ABI, ERC20_ABI, EURC, USDC, readJson, writeJson } from "./lib.mjs";
 import { gatewayBalances } from "./gateway.mjs";
 
 const VAULT_ABI = parseAbi(["function balanceOf(address) view returns (uint256)", "function convertToAssets(uint256) view returns (uint256)"]);
@@ -107,7 +107,14 @@ export async function observe(cfg, pub) {
   }
 
   const tock = { address: cfg.business.tock.address, abi: TOCK_ABI };
-  const paid = await recentJobFees(pub, cfg.business.tock.address, block.number);
+  // job fees come from a log scan; refresh it at most hourly so frequent checks stay light
+  let feeCache = readJson("job-fees.json", null);
+  if (!feeCache || Date.now() - feeCache.at > 3600e3 || feeCache.network !== cfg.network) {
+    const fresh = await recentJobFees(pub, cfg.business.tock.address, block.number);
+    feeCache = { at: Date.now(), network: cfg.network, fees: Object.keys(fresh).length ? fresh : feeCache?.fees ?? {} };
+    writeJson("job-fees.json", feeCache);
+  }
+  const paid = feeCache.fees;
   const gasBalances = {};
   const jobs = [];
   for (const o of cfg.business.tock.owners) {

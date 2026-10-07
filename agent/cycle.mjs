@@ -77,7 +77,15 @@ const recent = recentDecisions(snap);
 let prompt = briefing({ cfg, snap, fc, recent, cycle }) + (snap.wakeReasons ? `\n\nWhy you were woken: ${snap.wakeReasons.join("; ")}` : "");
 const runDir = statePath(`claude-run`);
 log(`cycle ${cycle}: thinking (${prompt.length} chars)`);
-let brain = await think(prompt, { model: cfg.model, effort: cfg.effort, runDir });
+let brain;
+try {
+  brain = await think(prompt, { model: cfg.model, effort: cfg.effort, runDir });
+} catch (e) {
+  // The model is unavailable (rate limit, outage). Keep live services funded with fixed,
+  // conservative rules, say so on the record, and look again soon instead of spinning.
+  log(`cycle ${cycle}: the model failed (${e.message.slice(0, 200)}); using the fallback rules`);
+  brain = fallbackBrain(e.message);
+}
 log(`cycle ${cycle}: ${brain.data.decisions.length} decision(s) in ${brain.seconds}s — ${brain.data.assessment}`);
 
 // ── information the agent decided to buy (x402), then decide again with it ──
@@ -97,7 +105,7 @@ if (wants.length) {
     }
   }
   prompt += `\n\n## You chose to buy information\n${wants.map((d) => `- ${d.service}: ${d.why}`).join("\n")}\n\n## What you got\n${sections.join("\n\n")}\n\nNow make your decisions with this. Do not buy anything else this cycle.`;
-  brain = await think(prompt, { model: cfg.model, effort: cfg.effort, runDir });
+  brain = await think(prompt, { model: cfg.model, effort: cfg.effort, runDir }).catch((e) => fallbackBrain(e.message));
   brain.data.decisions = brain.data.decisions.filter((d) => d.type !== "buy_info");
   log(`cycle ${cycle}: with the information: ${brain.data.decisions.length} decision(s) — ${brain.data.assessment}`);
 }
@@ -112,7 +120,7 @@ if (refusedFirst.length) {
   const revise = prompt + `\n\n## You answered:\n${JSON.stringify(brain.data.decisions.map(strip), null, 1)}\n\n## The contract refused these (simulated, nothing was sent):\n` +
     refusedFirst.map((c) => `- ${c.d.type} payee=${c.d.payee} action=${c.d.action} vault=${c.d.vault} amount=${c.d.amount}: ${c.error}`).join("\n") +
     `\n\nReturn your complete, revised list of decisions. Stay inside policy; propose what needs the owner. Do not buy information now.`;
-  brain = await think(revise, { model: cfg.model, effort: cfg.effort, runDir });
+  brain = await think(revise, { model: cfg.model, effort: cfg.effort, runDir }).catch((e) => fallbackBrain(e.message));
   brain.data.decisions = brain.data.decisions.filter((d) => d.type !== "buy_info");
   if (!brain.data.decisions.length) brain.data.decisions.push(noteOf("Holding after the contract's refusal.", "the owner reviews the refusal"));
   log(`cycle ${cycle}: revised to ${brain.data.decisions.length} decision(s)`);
@@ -194,6 +202,30 @@ if (!DRY) {
 log(`cycle ${cycle} done; next check in ${minutes} min`);
 
 // ───────────────────────────── helpers ─────────────────────────────
+
+/** Without the model: refill only what is already below its minimum, to one day of use. */
+function fallbackBrain(err) {
+  const decisions = [];
+  for (const p of snap.treasury.payees) {
+    if (!p.active || p.kind === "gateway") continue;
+    const key = accountKeyOf(p, cfg);
+    const a = key && fc.accounts[key];
+    if (!a || a.now >= a.minimum || a.perDay >= 0) continue;
+    const amount = +Math.min(p.maxPayment, snap.treasury.autoLimit, a.minimum - a.now + -a.perDay).toFixed(4);
+    if (amount <= 0) continue;
+    decisions.push({
+      type: "pay", payee: p.id, action: null, vault: null, service: null, to: null, token: "USDC", amount,
+      why: `Fallback rule (the model was unavailable): ${key} is below its minimum (${a.now} < ${a.minimum}); refilling to one day of use.`,
+      rule: "fallback: refill accounts below minimum to one day of use", alternatives: "none without the model", confidence: 0.5,
+      expect: `${key} back above its minimum`,
+    });
+  }
+  if (!decisions.length) decisions.push(noteOf(`The model was unavailable (${String(err).slice(0, 160)}). Nothing is below its minimum, so holding until it is back.`, "the model is back next cycle"));
+  return {
+    data: { review_of_last_cycle: "", assessment: "Fallback rules: the model was unavailable.", decisions, next_check_minutes: 20 },
+    model: "fallback-rules", seconds: 0, promptSha: "",
+  };
+}
 
 function noteOf(why, expect) {
   return { type: "note", payee: null, action: null, vault: null, service: null, to: null, token: null, amount: null, why, rule: "contract policy", alternatives: "", confidence: 1, expect };

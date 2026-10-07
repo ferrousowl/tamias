@@ -114,8 +114,9 @@ contract ReviewPoC2Test is Test {
     function test_N1_agentFreezeOrAnyPayeeEditLapsesTheOwnersIntent() public {
         vm.prank(agent);
         t.toGateway(4e6, "");
+        Tamias.BurnIntent memory bi = _recall(4e6, block.number + _delay() + 172_800);
         vm.prank(owner);
-        bytes32 d = t.ownerAuthorizeIntent(_recall(4e6, block.number + _delay() + 172_800));
+        bytes32 d = t.ownerAuthorizeIntent(bi);
         assertEq(t.isValidSignature(d, ""), OK);
 
         vm.prank(agent);
@@ -124,8 +125,10 @@ contract ReviewPoC2Test is Test {
         t.setFrozen(false);
         assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff), "owner's intent lapsed by the agent");
 
+        bi = _recall(4e6, block.number + _delay() + 172_801);
         vm.prank(owner);
-        d = t.ownerAuthorizeIntent(_recall(4e6, block.number + _delay() + 172_801));
+        d = t.ownerAuthorizeIntent(bi);
+        assertEq(t.isValidSignature(d, ""), OK);
         vm.prank(owner);
         t.setPayee(2, _p(stranger, address(0), 0, Tamias.Kind.Transfer, INFRA, 1, 0, address(0))); // unrelated new payee
         assertEq(t.isValidSignature(d, ""), bytes4(0xffffffff), "lapsed by an unrelated payee addition");
