@@ -25,6 +25,21 @@ interface ITokenMessengerV2 {
     ) external;
 }
 
+/// @dev Circle Gateway wallet (unified USDC balance).
+interface IGatewayWallet {
+    function deposit(address token, uint256 value) external;
+    function depositFor(address token, address depositor, uint256 value) external;
+}
+
+/// @dev ERC-4626 vault, e.g. a Morpho USDC vault offered through Circle App Kit Earn.
+interface IERC4626 {
+    function asset() external view returns (address);
+    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
+    function withdraw(uint256 assets, address receiver, address owner) external returns (uint256 shares);
+    function balanceOf(address) external view returns (uint256);
+    function convertToAssets(uint256 shares) external view returns (uint256);
+}
+
 /// @title Tamias — a treasury an AI agent runs and cannot overspend
 /// @notice Tamias (ταμίας) was the Athenian treasurer. This contract holds a business's USDC and
 ///         lets a hot key — the agent — move it, but only along paths the owner has opened:
@@ -48,7 +63,10 @@ contract Tamias {
     enum Kind {
         Transfer, // ERC-20 transfer of USDC or EURC to `account`
         TockGas, // native USDC into the Tock gas balance of `account`, through the Tock contract `via`
-        Cctp // USDC burned through CCTP `via` and minted to `account` on domain `domain`
+        Cctp, // USDC burned through CCTP `via` and minted to `account` on domain `domain`
+        GatewayDeposit, // USDC into the Circle Gateway balance of `account` (e.g. the agent's x402 budget), wallet `via`
+        Gateway // from the treasury's own Gateway balance, by a burn intent minted to `account` on `domain`
+            // through minter `via` as token `remoteToken` (see `authorizeIntent`)
     }
 
     struct Category {
@@ -67,7 +85,8 @@ contract Tamias {
         uint16 category;
         bool active;
         uint128 maxPayment; // micro-USD per payment
-        uint128 maxFee; // CCTP: most the agent may let the bridge charge, token units
+        uint128 maxFee; // CCTP / Gateway: most the agent may let the bridge charge, token units
+        address remoteToken; // Gateway: USDC on the destination chain
         string label;
     }
 
@@ -100,6 +119,49 @@ contract Tamias {
         bytes32 recordHash; // the agent's reasoning, as recorded when it proposed
     }
 
+    /// @notice A place idle cash can wait and earn: an ERC-4626 vault holding USDC.
+    struct Vault {
+        address vault;
+        bool active;
+        uint128 cap; // most USDC (token units) the agent may keep in it
+        string label;
+    }
+
+    /// @notice Circle Gateway on this chain. The treasury can hold part of its cash there as a
+    ///         unified balance; spending it takes a burn intent that this contract signs (ERC-1271)
+    ///         only after checking it against policy.
+    struct GatewayConfig {
+        address wallet;
+        address minter;
+        uint32 domain; // this chain's Gateway/CCTP domain (Arc: 26)
+        uint128 recallMaxFee; // most a recall to the treasury may pay in fees, token units
+        uint32 maxIntentBlocks; // how far ahead an authorized intent may stay valid
+    }
+
+    /// @dev Circle Gateway burn intent (EIP-712, domain {name: "GatewayWallet", version: "1"}).
+    struct TransferSpec {
+        uint32 version;
+        uint32 sourceDomain;
+        uint32 destinationDomain;
+        bytes32 sourceContract;
+        bytes32 destinationContract;
+        bytes32 sourceToken;
+        bytes32 destinationToken;
+        bytes32 sourceDepositor;
+        bytes32 destinationRecipient;
+        bytes32 sourceSigner;
+        bytes32 destinationCaller;
+        uint256 value;
+        bytes32 salt;
+        bytes hookData;
+    }
+
+    struct BurnIntent {
+        uint256 maxBlockHeight;
+        uint256 maxFee;
+        TransferSpec spec;
+    }
+
     // ─────────────────────────── constants ───────────────────────────
 
     address public constant USDC = 0x3600000000000000000000000000000000000000;
@@ -114,6 +176,24 @@ contract Tamias {
     uint8 public constant OP_FREEZE = 6;
     uint8 public constant OP_POLICY = 7; // an owner change; the record is its exact calldata
     uint8 public constant OP_PAY_TO = 8; // proposal kind only: pay an address that is not listed
+    uint8 public constant OP_GATEWAY_IN = 9; // cash moved into the treasury's Gateway balance
+    uint8 public constant OP_VAULT_IN = 10; // cash parked in a vault
+    uint8 public constant OP_VAULT_OUT = 11; // cash taken back from a vault
+    uint8 public constant OP_INTENT = 12; // a Gateway burn intent authorized (ref = payee, or RECALL)
+
+    /// @notice `authorizeIntent` payee id meaning "back to this treasury on this chain".
+    uint256 public constant RECALL = type(uint256).max;
+
+    bytes4 internal constant ERC1271_OK = 0x1626ba7e;
+    bytes32 internal constant TRANSFER_SPEC_TYPEHASH = keccak256(
+        "TransferSpec(uint32 version,uint32 sourceDomain,uint32 destinationDomain,bytes32 sourceContract,bytes32 destinationContract,bytes32 sourceToken,bytes32 destinationToken,bytes32 sourceDepositor,bytes32 destinationRecipient,bytes32 sourceSigner,bytes32 destinationCaller,uint256 value,bytes32 salt,bytes hookData)"
+    );
+    bytes32 internal constant BURN_INTENT_TYPEHASH = keccak256(
+        "BurnIntent(uint256 maxBlockHeight,uint256 maxFee,TransferSpec spec)TransferSpec(uint32 version,uint32 sourceDomain,uint32 destinationDomain,bytes32 sourceContract,bytes32 destinationContract,bytes32 sourceToken,bytes32 destinationToken,bytes32 sourceDepositor,bytes32 destinationRecipient,bytes32 sourceSigner,bytes32 destinationCaller,uint256 value,bytes32 salt,bytes hookData)"
+    );
+    bytes32 internal constant GATEWAY_DOMAIN_SEPARATOR = keccak256(
+        abi.encode(keccak256("EIP712Domain(string name,string version)"), keccak256("GatewayWallet"), keccak256("1"))
+    );
 
     uint256 public constant MAX_RECORD = 8192;
     uint32 public constant MIN_PERIOD = 1 hours;
@@ -145,6 +225,11 @@ contract Tamias {
     /// @notice Block of the latest record; each record names the block of the one before it, so a
     ///         reader can walk the log backwards without scanning block ranges.
     uint64 public lastBlock;
+
+    Vault[] internal _vaults;
+    GatewayConfig public gateway;
+    /// @notice Burn-intent digests this treasury has authorized; `isValidSignature` accepts only these.
+    mapping(bytes32 digest => bool) public intentAuthorized;
 
     bool private transient _locked;
 
@@ -183,6 +268,8 @@ contract Tamias {
     error Expired();
     error CallFailed(bytes reason);
     error Reentrancy();
+    error BadIntent(string field);
+    error OverVaultCap(uint256 assets, uint256 cap);
 
     // ─────────────────────────── modifiers ───────────────────────────
 
@@ -312,6 +399,107 @@ contract Tamias {
         _record(OP_FREEZE, 1, address(0), 0, 0, record);
     }
 
+    // ─────────────────────── agent: reserves ───────────────────────
+    // Moving cash between the treasury and its own reserves spends nothing, so it is not charged to
+    // a budget; the floor still applies to what stays on hand.
+
+    /// @notice Move cash into the treasury's Circle Gateway balance (a unified USDC balance that
+    ///         can later be spent on any Gateway chain, but only through `authorizeIntent`).
+    function toGateway(uint256 amount, bytes calldata record) external onlyAgent bounded(record) nonReentrant {
+        address w = gateway.wallet;
+        if (w == address(0) || amount == 0) revert BadParams();
+        _approve(w, amount);
+        IGatewayWallet(w).deposit(USDC, amount);
+        _approve(w, 0);
+        _checkFloor();
+        _record(OP_GATEWAY_IN, 0, USDC, amount, 0, record);
+    }
+
+    /// @notice Park cash in a listed vault so it earns while it waits.
+    function toVault(uint256 vaultId, uint256 assets, bytes calldata record)
+        external
+        onlyAgent
+        bounded(record)
+        nonReentrant
+    {
+        Vault storage v = _vault(vaultId);
+        if (!v.active) revert Inactive();
+        if (assets == 0) revert BadParams();
+        _approve(v.vault, assets);
+        IERC4626(v.vault).deposit(assets, address(this));
+        _approve(v.vault, 0);
+        uint256 held = IERC4626(v.vault).convertToAssets(IERC4626(v.vault).balanceOf(address(this)));
+        if (held > v.cap) revert OverVaultCap(held, v.cap);
+        _checkFloor();
+        _record(OP_VAULT_IN, vaultId, USDC, assets, 0, record);
+    }
+
+    /// @notice Take cash back from a vault. Allowed for inactive vaults, so money is never stuck.
+    function fromVault(uint256 vaultId, uint256 assets, bytes calldata record)
+        external
+        onlyAgent
+        bounded(record)
+        nonReentrant
+    {
+        Vault storage v = _vault(vaultId);
+        if (assets == 0) revert BadParams();
+        IERC4626(v.vault).withdraw(assets, address(this), address(this));
+        _record(OP_VAULT_OUT, vaultId, USDC, assets, 0, record);
+    }
+
+    /// @notice Authorize one Circle Gateway burn intent against the treasury's Gateway balance.
+    ///         The intent is checked field by field: it must spend this treasury's balance on this
+    ///         chain, and either come back to this treasury (`payeeId == RECALL`) or go to a listed
+    ///         Gateway payee, within its limits and its budget like any other payment. Only the
+    ///         digest of an intent that passed is ever accepted by `isValidSignature`.
+    /// @return digest the EIP-712 digest to submit to Gateway with `contractSigner: true`
+    function authorizeIntent(BurnIntent calldata bi, uint256 payeeId, bytes calldata record)
+        external
+        onlyAgent
+        bounded(record)
+        nonReentrant
+        returns (bytes32 digest)
+    {
+        GatewayConfig memory g = gateway;
+        TransferSpec calldata t = bi.spec;
+        if (g.wallet == address(0)) revert BadParams();
+        if (t.version != 1) revert BadIntent("version");
+        if (t.sourceDomain != g.domain) revert BadIntent("sourceDomain");
+        if (t.sourceContract != _b32(g.wallet)) revert BadIntent("sourceContract");
+        if (t.sourceToken != _b32(USDC)) revert BadIntent("sourceToken");
+        if (t.sourceDepositor != _b32(address(this)) || t.sourceSigner != _b32(address(this))) {
+            revert BadIntent("depositor");
+        }
+        if (t.hookData.length != 0) revert BadIntent("hookData");
+        if (t.value == 0) revert BadIntent("value");
+        if (bi.maxBlockHeight > block.number + g.maxIntentBlocks) revert BadIntent("maxBlockHeight");
+
+        uint256 usd;
+        if (payeeId == RECALL) {
+            if (
+                t.destinationDomain != g.domain || t.destinationContract != _b32(g.minter)
+                    || t.destinationToken != _b32(USDC) || t.destinationRecipient != _b32(address(this))
+            ) revert BadIntent("recall destination");
+            if (bi.maxFee > g.recallMaxFee) revert BadIntent("maxFee");
+        } else {
+            Payee storage p = _payee(payeeId);
+            if (!p.active) revert Inactive();
+            if (p.kind != Kind.Gateway) revert BadIntent("payee kind");
+            if (
+                t.destinationDomain != p.domain || t.destinationContract != _b32(p.via)
+                    || t.destinationToken != _b32(p.remoteToken) || t.destinationRecipient != _b32(p.account)
+            ) revert BadIntent("payee destination");
+            if (bi.maxFee > p.maxFee) revert BadIntent("maxFee");
+            usd = t.value + bi.maxFee; // USDC token units = micro-USD; charge the worst case
+            if (usd > p.maxPayment) revert OverPayeeLimit(usd, p.maxPayment);
+            if (usd > autoLimit) revert OverAutoLimit(usd, autoLimit);
+            _charge(p.category, usd, true);
+        }
+        digest = intentDigest(bi);
+        intentAuthorized[digest] = true;
+        _record(OP_INTENT, payeeId, USDC, t.value, usd, record);
+    }
+
     // ───────────────────────── owner: review ─────────────────────────
 
     /// @notice Carry out a proposal. The owner's approval replaces the agent's limits, but the
@@ -396,7 +584,12 @@ contract Tamias {
     function setPayee(uint256 id, Payee calldata p) external onlyOwner {
         if (p.account == address(0) || p.account == address(this)) revert BadParams();
         _category(p.category);
-        if (p.kind != Kind.Transfer && (p.via == address(0) || p.via.code.length == 0)) revert BadParams();
+        if (p.kind == Kind.Gateway) {
+            // the minter and token live on the destination chain, so they cannot be checked here
+            if (p.via == address(0) || p.remoteToken == address(0)) revert BadParams();
+        } else if (p.kind != Kind.Transfer && (p.via == address(0) || p.via.code.length == 0)) {
+            revert BadParams();
+        }
         if (id == _payees.length) _payees.push(p);
         else {
             _payee(id);
@@ -414,6 +607,30 @@ contract Tamias {
             _action(id);
             _actions[id] = a;
         }
+        _policy();
+    }
+
+    function setGateway(GatewayConfig calldata g) external onlyOwner {
+        if (g.wallet != address(0) && (g.wallet.code.length == 0 || g.minter.code.length == 0)) revert BadParams();
+        gateway = g;
+        _policy();
+    }
+
+    /// @param id an existing vault to change, or `vaultCount()` to add one
+    function setVault(uint256 id, Vault calldata v) external onlyOwner {
+        if (v.vault.code.length == 0 || IERC4626(v.vault).asset() != USDC) revert BadParams();
+        if (id == _vaults.length) _vaults.push(v);
+        else {
+            _vault(id);
+            _vaults[id] = v;
+        }
+        _policy();
+    }
+
+    /// @notice Authorize or revoke a Gateway intent digest directly. Revoking takes effect at
+    ///         Gateway within minutes, and cannot recall an attestation already issued.
+    function setIntent(bytes32 digest, bool ok) external onlyOwner {
+        intentAuthorized[digest] = ok;
         _policy();
     }
 
@@ -495,6 +712,49 @@ contract Tamias {
         return _proposal(id);
     }
 
+    /// @notice ERC-1271: the treasury "signs" exactly the Gateway intents it has authorized.
+    function isValidSignature(bytes32 hash, bytes calldata) external view returns (bytes4) {
+        return intentAuthorized[hash] ? ERC1271_OK : bytes4(0xffffffff);
+    }
+
+    /// @notice EIP-712 digest of a Gateway burn intent, as Gateway computes it.
+    function intentDigest(BurnIntent calldata bi) public pure returns (bytes32) {
+        TransferSpec calldata t = bi.spec;
+        bytes32 specHash = keccak256(
+            bytes.concat(
+                abi.encode(
+                    TRANSFER_SPEC_TYPEHASH,
+                    t.version,
+                    t.sourceDomain,
+                    t.destinationDomain,
+                    t.sourceContract,
+                    t.destinationContract,
+                    t.sourceToken
+                ),
+                abi.encode(
+                    t.destinationToken,
+                    t.sourceDepositor,
+                    t.destinationRecipient,
+                    t.sourceSigner,
+                    t.destinationCaller,
+                    t.value,
+                    t.salt,
+                    keccak256(t.hookData)
+                )
+            )
+        );
+        bytes32 structHash = keccak256(abi.encode(BURN_INTENT_TYPEHASH, bi.maxBlockHeight, bi.maxFee, specHash));
+        return keccak256(abi.encodePacked("\x19\x01", GATEWAY_DOMAIN_SEPARATOR, structHash));
+    }
+
+    function vaultCount() external view returns (uint256) {
+        return _vaults.length;
+    }
+
+    function getVault(uint256 id) external view returns (Vault memory) {
+        return _vault(id);
+    }
+
     /// @notice USDC on hand in token units (6 decimals).
     function cash() public view returns (uint256) {
         return address(this).balance / NATIVE_PER_UNIT;
@@ -526,14 +786,27 @@ contract Tamias {
         } else if (p.kind == Kind.TockGas) {
             if (token != USDC) revert TokenNotAccepted();
             ITock(p.via).depositFor{value: amount * NATIVE_PER_UNIT}(p.account);
-        } else {
+        } else if (p.kind == Kind.Cctp) {
             if (token != USDC) revert TokenNotAccepted();
-            if (!IERC20(USDC).approve(p.via, amount)) revert CallFailed("");
-            ITokenMessengerV2(p.via).depositForBurn(
-                amount, p.domain, bytes32(uint256(uint160(p.account))), USDC, bytes32(0), p.maxFee, 2000
-            );
-            IERC20(USDC).approve(p.via, 0);
+            _approve(p.via, amount);
+            ITokenMessengerV2(p.via).depositForBurn(amount, p.domain, _b32(p.account), USDC, bytes32(0), p.maxFee, 2000);
+            _approve(p.via, 0);
+        } else if (p.kind == Kind.GatewayDeposit) {
+            if (token != USDC) revert TokenNotAccepted();
+            _approve(p.via, amount);
+            IGatewayWallet(p.via).depositFor(USDC, p.account, amount);
+            _approve(p.via, 0);
+        } else {
+            revert BadParams(); // Gateway payees are paid through `authorizeIntent`
         }
+    }
+
+    function _approve(address spender, uint256 amount) internal {
+        if (!IERC20(USDC).approve(spender, amount)) revert CallFailed("");
+    }
+
+    function _b32(address a) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(a)));
     }
 
     function _transfer(address token, address to, uint256 amount) internal {
@@ -581,6 +854,11 @@ contract Tamias {
     function _action(uint256 id) internal view returns (Action storage) {
         if (id >= _actions.length) revert UnknownId();
         return _actions[id];
+    }
+
+    function _vault(uint256 id) internal view returns (Vault storage) {
+        if (id >= _vaults.length) revert UnknownId();
+        return _vaults[id];
     }
 
     function _proposal(uint256 id) internal view returns (Proposal storage) {

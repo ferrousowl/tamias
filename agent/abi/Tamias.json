@@ -96,6 +96,32 @@
  },
  {
   "type": "function",
+  "name": "OP_GATEWAY_IN",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint8",
+    "internalType": "uint8"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "OP_INTENT",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint8",
+    "internalType": "uint8"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "OP_NOTE",
   "inputs": [],
   "outputs": [
@@ -168,6 +194,45 @@
     "name": "",
     "type": "uint8",
     "internalType": "uint8"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "OP_VAULT_IN",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint8",
+    "internalType": "uint8"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "OP_VAULT_OUT",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint8",
+    "internalType": "uint8"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "RECALL",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint256",
+    "internalType": "uint256"
    }
   ],
   "stateMutability": "view"
@@ -252,6 +317,124 @@
    }
   ],
   "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "authorizeIntent",
+  "inputs": [
+   {
+    "name": "bi",
+    "type": "tuple",
+    "internalType": "struct Tamias.BurnIntent",
+    "components": [
+     {
+      "name": "maxBlockHeight",
+      "type": "uint256",
+      "internalType": "uint256"
+     },
+     {
+      "name": "maxFee",
+      "type": "uint256",
+      "internalType": "uint256"
+     },
+     {
+      "name": "spec",
+      "type": "tuple",
+      "internalType": "struct Tamias.TransferSpec",
+      "components": [
+       {
+        "name": "version",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "sourceDomain",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "destinationDomain",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "sourceContract",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationContract",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceToken",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationToken",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceDepositor",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationRecipient",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceSigner",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationCaller",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+       },
+       {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "hookData",
+        "type": "bytes",
+        "internalType": "bytes"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "payeeId",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "record",
+    "type": "bytes",
+    "internalType": "bytes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "digest",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   }
+  ],
   "stateMutability": "nonpayable"
  },
  {
@@ -360,6 +543,29 @@
  },
  {
   "type": "function",
+  "name": "fromVault",
+  "inputs": [
+   {
+    "name": "vaultId",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "assets",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "record",
+    "type": "bytes",
+    "internalType": "bytes"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
   "name": "frozen",
   "inputs": [],
   "outputs": [
@@ -367,6 +573,39 @@
     "name": "",
     "type": "bool",
     "internalType": "bool"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "gateway",
+  "inputs": [],
+  "outputs": [
+   {
+    "name": "wallet",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "minter",
+    "type": "address",
+    "internalType": "address"
+   },
+   {
+    "name": "domain",
+    "type": "uint32",
+    "internalType": "uint32"
+   },
+   {
+    "name": "recallMaxFee",
+    "type": "uint128",
+    "internalType": "uint128"
+   },
+   {
+    "name": "maxIntentBlocks",
+    "type": "uint32",
+    "internalType": "uint32"
    }
   ],
   "stateMutability": "view"
@@ -525,6 +764,11 @@
       "internalType": "uint128"
      },
      {
+      "name": "remoteToken",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
       "name": "label",
       "type": "string",
       "internalType": "string"
@@ -597,6 +841,47 @@
  },
  {
   "type": "function",
+  "name": "getVault",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "tuple",
+    "internalType": "struct Tamias.Vault",
+    "components": [
+     {
+      "name": "vault",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "active",
+      "type": "bool",
+      "internalType": "bool"
+     },
+     {
+      "name": "cap",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "label",
+      "type": "string",
+      "internalType": "string"
+     }
+    ]
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
   "name": "head",
   "inputs": [],
   "outputs": [
@@ -604,6 +889,157 @@
     "name": "",
     "type": "bytes32",
     "internalType": "bytes32"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "intentAuthorized",
+  "inputs": [
+   {
+    "name": "digest",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "intentDigest",
+  "inputs": [
+   {
+    "name": "bi",
+    "type": "tuple",
+    "internalType": "struct Tamias.BurnIntent",
+    "components": [
+     {
+      "name": "maxBlockHeight",
+      "type": "uint256",
+      "internalType": "uint256"
+     },
+     {
+      "name": "maxFee",
+      "type": "uint256",
+      "internalType": "uint256"
+     },
+     {
+      "name": "spec",
+      "type": "tuple",
+      "internalType": "struct Tamias.TransferSpec",
+      "components": [
+       {
+        "name": "version",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "sourceDomain",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "destinationDomain",
+        "type": "uint32",
+        "internalType": "uint32"
+       },
+       {
+        "name": "sourceContract",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationContract",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceToken",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationToken",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceDepositor",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationRecipient",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "sourceSigner",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "destinationCaller",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "value",
+        "type": "uint256",
+        "internalType": "uint256"
+       },
+       {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+       },
+       {
+        "name": "hookData",
+        "type": "bytes",
+        "internalType": "bytes"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   }
+  ],
+  "stateMutability": "pure"
+ },
+ {
+  "type": "function",
+  "name": "isValidSignature",
+  "inputs": [
+   {
+    "name": "hash",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   },
+   {
+    "name": "",
+    "type": "bytes",
+    "internalType": "bytes"
+   }
+  ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "bytes4",
+    "internalType": "bytes4"
    }
   ],
   "stateMutability": "view"
@@ -937,6 +1373,64 @@
  },
  {
   "type": "function",
+  "name": "setGateway",
+  "inputs": [
+   {
+    "name": "g",
+    "type": "tuple",
+    "internalType": "struct Tamias.GatewayConfig",
+    "components": [
+     {
+      "name": "wallet",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "minter",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "domain",
+      "type": "uint32",
+      "internalType": "uint32"
+     },
+     {
+      "name": "recallMaxFee",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "maxIntentBlocks",
+      "type": "uint32",
+      "internalType": "uint32"
+     }
+    ]
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "setIntent",
+  "inputs": [
+   {
+    "name": "digest",
+    "type": "bytes32",
+    "internalType": "bytes32"
+   },
+   {
+    "name": "ok",
+    "type": "bool",
+    "internalType": "bool"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
   "name": "setLimits",
   "inputs": [
    {
@@ -1013,6 +1507,11 @@
       "internalType": "uint128"
      },
      {
+      "name": "remoteToken",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
       "name": "label",
       "type": "string",
       "internalType": "string"
@@ -1036,6 +1535,87 @@
     "name": "rate",
     "type": "uint256",
     "internalType": "uint256"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "setVault",
+  "inputs": [
+   {
+    "name": "id",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "v",
+    "type": "tuple",
+    "internalType": "struct Tamias.Vault",
+    "components": [
+     {
+      "name": "vault",
+      "type": "address",
+      "internalType": "address"
+     },
+     {
+      "name": "active",
+      "type": "bool",
+      "internalType": "bool"
+     },
+     {
+      "name": "cap",
+      "type": "uint128",
+      "internalType": "uint128"
+     },
+     {
+      "name": "label",
+      "type": "string",
+      "internalType": "string"
+     }
+    ]
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "toGateway",
+  "inputs": [
+   {
+    "name": "amount",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "record",
+    "type": "bytes",
+    "internalType": "bytes"
+   }
+  ],
+  "outputs": [],
+  "stateMutability": "nonpayable"
+ },
+ {
+  "type": "function",
+  "name": "toVault",
+  "inputs": [
+   {
+    "name": "vaultId",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "assets",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "record",
+    "type": "bytes",
+    "internalType": "bytes"
    }
   ],
   "outputs": [],
@@ -1088,6 +1668,19 @@
     "internalType": "uint256"
    }
   ],
+  "outputs": [
+   {
+    "name": "",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ],
+  "stateMutability": "view"
+ },
+ {
+  "type": "function",
+  "name": "vaultCount",
+  "inputs": [],
   "outputs": [
    {
     "name": "",
@@ -1204,6 +1797,17 @@
  },
  {
   "type": "error",
+  "name": "BadIntent",
+  "inputs": [
+   {
+    "name": "field",
+    "type": "string",
+    "internalType": "string"
+   }
+  ]
+ },
+ {
+  "type": "error",
   "name": "BadParams",
   "inputs": []
  },
@@ -1312,6 +1916,22 @@
    },
    {
     "name": "limit",
+    "type": "uint256",
+    "internalType": "uint256"
+   }
+  ]
+ },
+ {
+  "type": "error",
+  "name": "OverVaultCap",
+  "inputs": [
+   {
+    "name": "assets",
+    "type": "uint256",
+    "internalType": "uint256"
+   },
+   {
+    "name": "cap",
     "type": "uint256",
     "internalType": "uint256"
    }
