@@ -16,6 +16,7 @@ import { briefing, think } from "./brain.mjs";
 import { collect } from "./collect.mjs";
 import { recallIntent, digestOf, savePending, settlePending } from "./gateway.mjs";
 import { buyInfo } from "./x402.mjs";
+import { notifyOwner } from "./notify.mjs";
 
 const argv = new Set(process.argv.slice(2));
 const DRY = argv.has("--dry");
@@ -169,6 +170,12 @@ for (let i = 0; i < ok.length; i++) {
 for (const c of refusedFinal) results.push({ cycle, at: snap.at, type: c.d.type, payee: c.d.payee, action: c.d.action, vault: c.d.vault, amount: c.d.amount, why: c.d.why, expect: c.d.expect, outcome: `refused by contract: ${c.error}` });
 if (!DRY) for (const r of results) appendJsonl("decisions.jsonl", r);
 if (!DRY) for (const b of bought) appendJsonl("purchases.jsonl", { cycle, at: snap.at, ...b });
+
+// Escalations reach the owner as a message (when notifications are configured).
+for (const r of results.filter((x) => x.proposal != null)) {
+  const p = r.type === "propose_pay" ? snap.treasury.payees[r.payee]?.label : r.type === "propose_act" ? snap.treasury.actions[r.action]?.label : r.to;
+  await notifyOwner(`Tamias asks for approval #${r.proposal} (${cfg.network}): ${r.type.replace("propose_", "")} ${r.amount ?? ""} ${r.token ?? ""} → ${p ?? "?"}\n\nWhy: ${r.why}\n\nTo decide: approve ${r.proposal} / reject ${r.proposal} (expires in ${snap.treasury.proposalTtlHours} h)`);
+}
 
 // A recall authorized just now: wait for Gateway to see it and mint it back into the treasury.
 if (recalled) await settlePending(cfg, pub, agent).catch((e) => log("gateway settle failed:", e.message));
