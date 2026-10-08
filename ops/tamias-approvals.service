@@ -1,0 +1,15 @@
+# Tamias owner approvals over a dedicated Telegram bot (long-poll). Needs ~/.config/tamias/notify.json
+# and the bot token file it names; the owner must have pressed /start on the bot.
+[Unit]
+Description=Tamias approvals bot (owner approves or rejects the agent's proposals)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/work/tameion-treasurer/agent
+Environment=TAMIAS_NETWORK=mainnet
+ExecStart=/usr/bin/node approvals.mjs
+Restart=always
+RestartSec=20
+
+[Install]
+WantedBy=default.target

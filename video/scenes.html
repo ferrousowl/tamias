@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tamias video scenes</title>
+<style>
+  :root { --bg: #15140f; --panel: #1f1d17; --ink: #ece7dc; --muted: #a39d90; --line: #34302a; --accent: #d99a5b; --good: #6fc794; --bad: #ef8a83; --warn: #e3a64b; --info: #8ab4ea; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: var(--bg); color: var(--ink); font: 22px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #stage { position: absolute; inset: 0 0 120px 0; padding: 48px 64px; }
+  #cap { position: absolute; left: 0; right: 0; bottom: 0; height: 120px; display: flex; align-items: center; justify-content: center; padding: 0 80px; background: rgba(0,0,0,.55); border-top: 1px solid var(--line); font-size: 27px; line-height: 1.35; text-align: center; }
+  h1 { font: 600 76px/1.05 Georgia, serif; margin: 0; }
+  h2 { font: 600 40px/1.15 Georgia, serif; margin: 0 0 18px; }
+  .sub { color: var(--muted); font-size: 26px; margin-top: 14px; }
+  .center { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+  .seal { width: 120px; height: 120px; border-radius: 50%; background: var(--accent); color: #1b130b; display: flex; align-items: center; justify-content: center; font: 600 64px Georgia, serif; margin-bottom: 26px; }
+  .tags { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .tag { border: 1px solid var(--line); border-radius: 999px; padding: 6px 16px; font-size: 18px; color: var(--muted); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; height: 100%; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; overflow: hidden; }
+  .box .k { font-size: 15px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  pre, .mono { font: 16px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; margin: 0; }
+  .term { background: #0e0d0a; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; height: 100%; overflow: hidden; }
+  .term .l { opacity: 0; transition: opacity .25s; } .term .l.on { opacity: 1; }
+  .ok { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); } .info { color: var(--info); } .acc { color: var(--accent); } .mut { color: var(--muted); }
+  .flow { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 30px; }
+  .node { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; text-align: center; min-height: 150px; }
+  .node b { display: block; font-size: 24px; margin-bottom: 6px; }
+  .node small { color: var(--muted); font-size: 17px; }
+  .arrow { color: var(--accent); font-size: 34px; }
+  .limits { margin-top: 24px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .limits div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 18px; }
+  .rec { font-size: 19px; } .rec dt { color: var(--muted); font-size: 15px; text-transform: uppercase; letter-spacing: .5px; margin-top: 10px; } .rec dd { margin: 2px 0 0; }
+  .big { font: 600 56px/1.1 system-ui; } .metric { text-align: center; } .metric small { display: block; color: var(--muted); font-size: 18px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="cap"></div>
+<script type="module">
+const D = await fetch("data.json").then((r) => r.json());
+const $ = (h) => { document.getElementById("stage").innerHTML = h; };
+const cap = (t) => { document.getElementById("cap").textContent = t; };
+const short = (h) => (h ? h.slice(0, 10) + "…" + h.slice(-6) : "");
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+const reveal = (ms) => { const ls = [...document.querySelectorAll(".term .l")]; ls.forEach((l, i) => setTimeout(() => l.classList.add("on"), 300 + i * ms)); };
+const dec = D.decisions.filter((d) => d.do?.type === "pay").slice(-1)[0] ?? D.decisions.slice(-1)[0] ?? {};
+const esc1 = D.escalations.find((e) => e.op === "propose");
+const ref1 = D.refused[0];
+const buy = D.purchases.filter((p) => !p.error).slice(-1)[0];
+
+const SCENES = {
+  title: () => { $(`<div class="center"><div class="seal">T</div><h1>Tamias</h1><div class="sub">an AI treasurer that cannot overspend</div>
+    <div class="tags"><span class="tag">Arc mainnet</span><span class="tag">USDC</span><span class="tag">Circle Gateway · ERC-1271</span><span class="tag">Agent Wallets · x402</span></div></div>`);
+    cap("Tamias runs a real business's money on Arc. An AI decides when to pay; a contract decides what it may."); },
+
+  business: () => { $(`<div class="cols"><div class="box"><div class="k">Before: a cron job (ops-hourly.mjs)</div><pre>${D.cron.map(esc).join("\n")}</pre></div>
+    <div class="box"><div class="k">After: the agent's first decision on mainnet</div><div class="rec"><dl>
+      <dt>Did</dt><dd class="ok">Paid ${esc(dec.do?.amount)} USDC → ${esc(dec.do?.to)}</dd>
+      <dt>Why</dt><dd>${esc(dec.why)}</dd><dt>Expects</dt><dd class="mut">${esc(dec.expect)}</dd></dl></div></div></div>`);
+    cap("Two live protocols (Standing, Tock) need gas, keeper float and a paying demo customer. Fixed thresholds used to run that money; now an agent weighs it and explains."); },
+
+  contract: () => { $(`<h2>The limits live in a contract, not a prompt</h2>
+    <div class="flow"><div class="node"><b>Owner</b><small>a human: sets policy, approves anything bigger</small></div><div class="arrow">→</div>
+    <div class="node" style="border-color:var(--accent)"><b>Tamias contract</b><small>holds the treasury · verified on Sourcify<br>${short(D.tamias)}</small></div><div class="arrow">→</div>
+    <div class="node"><b>Listed payees</b><small>scheduler gas · keeper float · demo customer · data wallet · reserves</small></div></div>
+    <div class="limits"><div>per-payee cap</div><div>budget per period</div><div>auto-approval limit</div><div>cash floor</div></div>
+    <p class="sub" style="text-align:center">The agent's hot key can only act inside these. Everything else is a proposal.</p>`);
+    cap("The agent can only pay listed payees, within budgets, a per-payment limit and a cash floor. Anything else it must propose to a human."); },
+
+  cycle: () => { const lines = D.journal.length ? D.journal.slice(-14) : [
+      `cycle 1: thinking (7608 chars)`, `cycle 1: 1 decision(s) — ${dec.assessment ?? ""}`, `  pay ${dec.do?.amount} → ${short(dec.tx)} (record ${JSON.stringify(dec).length} B)`, `cycle 1 done; next check in ${dec.next ?? "?"} min`];
+    $(`<h2>A decision cycle, as it ran</h2><div class="term">${lines.map((l) => `<div class="l mono">${esc(l).replace(/(→ 0x[0-9a-f]+…?\w*)/g, '<span class="ok">$1</span>').replace(/(refused[^|]*)/g, '<span class="bad">$1</span>')}</div>`).join("")}</div>`);
+    reveal(700);
+    cap("Each cycle it reads the chain, forecasts runway, decides, checks every decision against the contract, acts, and chooses when to look again."); },
+
+  refusal: () => { const r = ref1, e = esc1;
+    $(`<h2>When it asks for too much</h2><div class="cols">
+      <div class="box"><div class="k">The contract said no</div><pre class="bad">${r ? r.refused.map((x) => `${esc(x.tried)}\n→ ${esc(x.contract)}`).join("\n\n") : "(none yet on mainnet)"}</pre>
+        <div class="k" style="margin-top:18px">What it did instead</div><div class="rec">${r ? esc(r.why) : ""}</div></div>
+      <div class="box"><div class="k">Escalated to the owner</div><div class="rec">${e ? `<dl><dt>Proposal #${e.ref}</dt><dd>${esc(e.do?.amount)} USDC → ${esc(e.do?.to)}</dd><dt>Why</dt><dd>${esc(e.why)}</dd></dl>` : "(none yet on mainnet)"}</div></div></div>`);
+    cap("When it asks for more than it may, the contract refuses. It pays what it can and asks the owner, who signs above the limit."); },
+
+  gateway: () => { $(`<h2>Reserve in Circle Gateway, signed by the contract itself</h2>
+    <div class="flow"><div class="node"><b>1 · deposit</b><small>treasury → Gateway balance</small><div class="mono ok" style="margin-top:8px">${short(D.gateway.deposit)}</div></div><div class="arrow">→</div>
+    <div class="node" style="border-color:var(--accent)"><b>2 · authorize</b><small>the contract checks every field, then accepts the intent's digest (ERC-1271)</small><div class="mono ok" style="margin-top:8px">${short(D.gateway.authorize)}</div></div><div class="arrow">→</div>
+    <div class="node"><b>3 · attest + mint</b><small>Circle's keyless API, then gatewayMint</small><div class="mono ok" style="margin-top:8px">${short(D.gateway.mint)}</div></div></div>
+    <p class="sub" style="text-align:center">${D.gateway.recalled} USDC back in the treasury, first try on mainnet.</p>`);
+    cap("Its reserve sits in Circle Gateway. The contract signs a transfer only after checking it against policy. Arc mainnet, first try."); },
+
+  x402: () => { $(`<h2>It buys information only when it would change a decision</h2><div class="cols">
+      <div class="box"><div class="k">Circle Agent Wallet (x402 data wallet)</div><div class="rec"><dl><dt>Limits</dt><dd>contract: 0.5 USDC per 30 days into it<br>Circle: 0.1 per tx · 0.2 a day · 0.5 a month</dd>
+      <dt>Paid with</dt><dd class="mono">circle services pay</dd></dl></div></div>
+      <div class="box"><div class="k">A purchase</div><div class="rec">${buy ? `<dl><dt>Bought</dt><dd>${esc(buy.service)} for ${buy.price} USDC</dd><dt>Settled</dt><dd class="mono ok">${short(buy.tx)}</dd><dt>Why</dt><dd>${esc(buy.why ?? buy.operator ?? "")}</dd></dl>` : ""}</div></div></div>`);
+    cap("Data costs money too. It pays per request over x402 from a Circle Agent Wallet that both the contract and Circle cap."); },
+
+  record: () => { const m = D.metrics; $(`<h2>Every decision, on the record</h2>
+    <p class="sub" style="margin:0">Each record is a contract event. Its hash is folded into a chain anyone can replay.</p>
+    <div class="grid4"><div class="box metric"><span class="big">${m.cycles}</span><small>decision cycles</small></div><div class="box metric"><span class="big">${m.paidUsd}</span><small>USDC paid by the agent</small></div>
+    <div class="box metric"><span class="big">${m.proposals}</span><small>escalated · ${m.approved} approved</small></div><div class="box metric"><span class="big">${D.records}</span><small>records, verified</small></div></div>`);
+    cap("Every decision is on-chain with its reasoning, in a hash chain anyone can replay. The live page re-checks it in your browser."); },
+
+  end: () => { $(`<div class="center"><h1 style="font-size:58px">github.com/ferrousowl/tamias</h1><div class="sub">ferrousowl.github.io/tamias · ${D.tamias}</div><div class="tags"><span class="tag">built during Tameion · Canteen × Circle</span></div></div>`);
+    cap("Tamias: an AI treasurer that cannot overspend. Open source, live on Arc."); },
+};
+const name = new URLSearchParams(location.search).get("scene") ?? "title";
+SCENES[name]();
+document.body.dataset.ready = "1";
+</script>
+</body>
+</html>
