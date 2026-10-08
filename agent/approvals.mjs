@@ -66,6 +66,7 @@ for (;;) {
     const t = (m.text ?? "").trim();
     const hit = /^(approve|reject) (\d{1,6})$/i.exec(t);
     if (hit) await decide(hit[1].toLowerCase(), Number(hit[2]), m.from.id);
-    else if (t !== "/start") await reply('Reply exactly "approve N" or "reject N" to decide proposal #N.');
+    else if (t === "/start") await reply(`Tamias approvals for treasury ${cfg.tamias} on Arc. When the agent asks for something beyond its limits, the request arrives here. Reply exactly "approve N" or "reject N" to decide proposal #N. Every decision goes on the public record: https://ferrousowl.github.io/tamias/`);
+    else await reply('Reply exactly "approve N" or "reject N" to decide proposal #N.');
   }
 }

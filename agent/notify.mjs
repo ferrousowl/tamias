@@ -12,7 +12,7 @@ export async function notifyOwner(text) {
   if (!fs.existsSync(FILE)) return false;
   const n = JSON.parse(fs.readFileSync(FILE, "utf8"));
   if (!n.enabled) return false;
-  const token = fs.readFileSync(n.tokenFile, "utf8").trim();
+  const token = fs.readFileSync(n.tokenFile.replace(/^~/, os.homedir()), "utf8").trim();
   const body = new URLSearchParams({ chat_id: String(n.chatId), text: text.slice(0, 3900), disable_web_page_preview: "true" });
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", body });
