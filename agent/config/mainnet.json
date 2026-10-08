@@ -272,5 +272,9 @@
   },
   "rpcFallbacks": [
     "https://5042.rpc.thirdweb.com"
-  ]
+  ],
+  "tamias": "0xc53fef25d0b143e67ed97961e616867b382cf1e9",
+  "deployBlock": 24838865,
+  "deployTx": "0xed8cc15e861275027b147baae2d5f3cd2f8f62ebc8535c48c4918b0f55cf3bdc",
+  "publishLog": true
 }

@@ -1,1 +1,9 @@
-{"tamias":"0x41c56fe4f55ec380c9257d4701b8fa6b85372493","rpcs":["http://127.0.0.1:8547"],"explorer":"https://explorer.arc.io"}
+{
+ "tamias": "0xc53fef25d0b143e67ed97961e616867b382cf1e9",
+ "rpcs": [
+  "https://rpc.mainnet.arc.io",
+  "https://5042.rpc.thirdweb.com"
+ ],
+ "explorer": "https://explorer.arc.io",
+ "snapshotUrl": "https://raw.githubusercontent.com/ferrousowl/tamias/log/log.json"
+}

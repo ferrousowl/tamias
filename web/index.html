@@ -145,7 +145,10 @@ $("addr").outerHTML = `<a href="${EXPLORER}/address/${TAMIAS}" target="_blank" r
 const event = getAbiItem({ abi: ABI, name: "Recorded" });
 async function readRecords() {
   const [head, seq, lastBlock] = await Promise.all([read("head"), read("seq"), read("lastBlock")]);
-  const snap = CONFIG.snapshot === false ? null : await fetch("data/log.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  // a published snapshot makes the first load fast; anything newer is read from the chain below,
+  // and the whole chain is re-verified either way
+  const snapUrl = CONFIG.snapshotUrl ?? "data/log.json";
+  const snap = CONFIG.snapshot === false ? null : await fetch(snapUrl, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const have = new Map();
   if (snap?.tamias?.toLowerCase() === TAMIAS.toLowerCase()) for (const r of snap.rows) have.set(r.seq, { ...r, amount: BigInt(r.amount), usdRaw: BigInt(r.usdRaw), op: Number(r.opId), ref: BigInt(r.ref) });
   let block = lastBlock;

@@ -201,6 +201,14 @@ if (!DRY) {
 }
 log(`cycle ${cycle} done; next check in ${minutes} min`);
 
+// Publish the updated record snapshot for the public page (best effort; the page reads the chain anyway).
+if (!DRY && cfg.publishLog) {
+  const { spawnSync } = await import("child_process");
+  const r = spawnSync("bash", [new URL("../ops/publish-log.sh", import.meta.url).pathname], { encoding: "utf8", timeout: 180_000 });
+  if (r.status !== 0) log(`publish-log failed: ${(r.stderr || r.stdout || "").slice(0, 300)}`);
+  else log("record snapshot published");
+}
+
 // ───────────────────────────── helpers ─────────────────────────────
 
 /** Without the model: refill only what is already below its minimum, to one day of use. */

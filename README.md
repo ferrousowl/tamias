@@ -2,8 +2,8 @@
 
 **Tamias** (ταμίας) was the Athenian treasurer: the official who held the city's money, and who answered for every coin at the end of his term. This Tamias is an AI agent that runs a small business's money on [Arc](https://arc.network), Circle's stablecoin chain. It decides when to pay, how much, and when to ask a human. It writes down why. It works inside a contract that enforces the owner's budgets on-chain, so whatever the model decides, it cannot spend past them.
 
-- **Live on Arc mainnet:** contract `TBD` (see [Deployment](#deployment))
-- **Decision record (every decision, read from the chain and verified in your browser):** `TBD`
+- **Live on Arc mainnet since 2026-10-08 03:45 UTC:** [`0xc53fef25d0b143e67ed97961e616867b382cf1e9`](https://explorer.arc.io/address/0xc53fef25d0b143e67ed97961e616867b382cf1e9) (source verified on [Sourcify](https://repo.sourcify.dev/5042/0xc53fef25d0b143e67ed97961e616867b382cf1e9), exact match)
+- **Decision record (every decision, read from the chain and verified in your browser):** https://ferrousowl.github.io/tamias/
 - **Built for** the [Tameion Agents Hackathon](https://tameion.thecanteenapp.com/) (Canteen × Circle), 2026-10-07 → 2026-10-17
 
 ---
@@ -138,11 +138,24 @@ Known limits:
 
 ## Built during Tameion
 
-All of this repository was written during the event. The root commit is empty on purpose, so [`compare/<root>...main`](#) shows the whole delta. Standing and Tock themselves were started on 2026-10-02, also inside the event window.
+All of this repository was written during the event. The root commit is empty on purpose, so [`compare/a8404bd...main`](https://github.com/ferrousowl/tamias/compare/a8404bd...main) shows the whole delta. Standing and Tock themselves were started on 2026-10-02, also inside the event window.
 
 ## Deployment
 
-`TBD`: filled in at mainnet go-live (contract address, deploy transaction, owner and agent addresses, the decision-record URL).
+Arc mainnet (chain 5042), deployed 2026-10-08 03:45 UTC:
+
+| | |
+|---|---|
+| Tamias | [`0xc53fef25d0b143e67ed97961e616867b382cf1e9`](https://explorer.arc.io/address/0xc53fef25d0b143e67ed97961e616867b382cf1e9), deploy tx [`0xed8cc15e…cf3bdc`](https://explorer.arc.io/tx/0xed8cc15e861275027b147baae2d5f3cd2f8f62ebc8535c48c4918b0f55cf3bdc), block 24,838,865 |
+| Owner (human) | `0x722440CbAd38E5f5bcb9512EF5F94277F7d1E697` |
+| Agent (hot key) | `0xec358c50D7079EB83Ae317D20052e6be80a2EF39` |
+| x402 data wallet | `0x9f9936706F5D640775e32b0948dcc3C93d5278e3` |
+| Policy | [`agent/config/mainnet.json`](agent/config/mainnet.json): every value is also on the record chain as an owner `policy` entry |
+
+First Gateway round trip (operator smoke test, 2026-10-08):
+- moved 0.1 USDC into the treasury's Gateway balance: [`0x0bd93feb…`](https://explorer.arc.io/tx/0x0bd93feb0b07c6a8c1365d4e28f0077f529cc43ce9888b41139eb13570e5566b);
+- the contract authorized the recall intent: [`0x94651c25…`](https://explorer.arc.io/tx/0x94651c25f896b6c389369ac9ac98c052603e0587fddebd260396f85dcf8552a5);
+- the keyless Gateway API attested it through ERC-1271, and the 0.09615 USDC was minted back: [`0xeb55a311…`](https://explorer.arc.io/tx/0xeb55a311457acf49b0de2f7b3527b6406d97b099de87b1edd14f483b57b8ed64).
 
 ## License
 
