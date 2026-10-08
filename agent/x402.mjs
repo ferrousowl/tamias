@@ -4,12 +4,32 @@
 // from the owner's catalog, on Arc, in USDC, and at or under the catalog price.
 import { wrapFetchWithPaymentFromConfig, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm";
+import { spawnSync } from "child_process";
+import os from "os";
+import path from "path";
 import { USDC, log, readJsonl } from "./lib.mjs";
 
 const ARC = "eip155:5042";
 
 export function catalogText(cfg) {
   return (cfg.x402?.services ?? []).map((s) => `- "${s.id}": ${s.what} (≈${s.price} USDC per call)`).join("\n");
+}
+
+/** Buy through a Circle Agent Wallet with the Circle CLI (`circle services pay`). The wallet has
+ *  its own Circle-side spending limits; the treasury refills it only within its on-chain budget. */
+function buyWithCircle(cfg, s) {
+  const bin = cfg.x402.circleBin ?? path.join(os.homedir(), "work/tamias-tools/circle/node_modules/.bin/circle");
+  const r = spawnSync(bin, ["services", "pay", s.url, "--address", cfg.x402.circleAddress, "--chain", "ARC", "--max-amount", String(s.price), "-o", "json"], {
+    encoding: "utf8", timeout: 120_000, env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1" },
+  });
+  let j;
+  try { j = JSON.parse(r.stdout); } catch { throw new Error(`circle CLI: ${(r.stderr || r.stdout || "no output").slice(0, 200)}`); }
+  if (j.error) throw new Error(`circle CLI: ${j.error.message} ${String(j.error.hint ?? "").split("\n")[0]}`.slice(0, 240));
+  const pay = j.data?.payment ?? {};
+  let tx = null;
+  try { tx = JSON.parse(Buffer.from(pay.receipt ?? "", "base64").toString()).transaction ?? null; } catch {}
+  const price = Number(String(pay.amount ?? s.price).replace(/[^0-9.]/g, "")) || s.price;
+  return { body: JSON.stringify(j.data?.response ?? j.data ?? {}), price, payTo: pay.seller ?? null, settlement: tx };
 }
 
 /** Buy one catalog item. Returns { id, price, payTo, settlement, text } or throws. */
@@ -19,6 +39,11 @@ export async function buyInfo(cfg, account, id) {
   // a local total cap on top of the on-chain budget that refills the purchase wallet
   const spent = readJsonl("purchases.jsonl").reduce((t, p) => t + (p.error ? 0 : p.price ?? 0), 0);
   if (cfg.x402?.totalCap != null && spent + s.price > cfg.x402.totalCap) throw new Error(`total x402 cap reached (${spent.toFixed(4)} of ${cfg.x402.totalCap} USDC spent)`);
+  if (cfg.x402?.mode === "circle") {
+    const r = buyWithCircle(cfg, s);
+    log(`x402 (Circle Agent Wallet): bought "${id}" for ${r.price} USDC${r.settlement ? ` (tx ${r.settlement})` : ""}`);
+    return { id, price: r.price, payTo: r.payTo, settlement: r.settlement, text: digest(s, r.body) };
+  }
   const maxUnits = BigInt(Math.round(s.price * 1e6));
   let chosen = null;
   const pay = wrapFetchWithPaymentFromConfig(fetch, {

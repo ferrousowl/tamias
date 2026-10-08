@@ -71,12 +71,15 @@ head = keccak(head, seq, op, by, ref, token, amount, usd, detail, keccak(record)
 |---|---|
 | **USDC on Arc** | The treasury's money and the gas. The native 18-decimal balance and the 6-decimal ERC-20 view are one balance. |
 | **Circle Gateway** | The treasury's **reserve** as a unified USDC balance, spendable on other chains. The treasury itself is the depositor and signs its own burn intents through **ERC-1271**. The contract recomputes the EIP-712 digest from the intent and checks every field against policy before `isValidSignature` will accept it. The agent then posts it to the keyless Gateway API (`contractSigner: true`) and mints the attestation. A policy contract cosigning its own cross-chain transfers is the part of this project we have not seen elsewhere. |
-| **x402** (Arc USDC, EIP-3009) | The agent **buys the data it uses**, per request: DeFi yields before parking cash, EUR/USD before valuing euros. It pays from its own wallet, which the treasury refills only within an on-chain budget. Each purchase must come from the owner's catalog, be on Arc, be in USDC, and cost no more than the catalog price. A **Gateway Nanopayments** buyer balance can be funded the same way (`GatewayDeposit` payees). |
+| **Circle Agent Wallets** (Circle CLI) | The agent's **x402 data wallet** is a Circle Agent Wallet on Arc: an ERC-4337 smart account with Circle-sponsored gas. Circle enforces its own spending limits on it server-side (0.1 per transaction, 0.2 a day, 0.5 a week and a month). Those sit on top of the contract's budget for refilling it (0.5 per 30 days). Purchases go through `circle services pay`. |
+| **x402** (Arc USDC, EIP-3009) | The agent **buys the data it uses**, per request: DeFi yields before parking cash, EUR/USD before valuing euros. It pays from its data wallet (the Circle Agent Wallet above), which the treasury refills only within an on-chain budget. Each purchase must come from the owner's catalog, be on Arc, be in USDC, and cost no more than the catalog price. A **Gateway Nanopayments** buyer balance can be funded the same way (`GatewayDeposit` payees). |
 | **CCTP v2** | A payee kind for vendors on other chains: burn on Arc, mint to a fixed recipient on a fixed domain. |
 | **App Kit Earn** (Morpho ERC-4626 vaults on Arc) | A yield reserve. Idle cash beyond about two weeks of needs is parked when the yield beats the gas, and redeemed when the forecast needs it. |
 | **EURC** | Payable to listed payees and counted against budgets at an owner-set USD rate. |
 
 USYC (institutional KYB) and Circle Paymaster (not deployed on Arc, where gas is already USDC) were out of reach.
+
+The Circle Agent Wallet was the one piece that needed an account: a Circle CLI login by email.
 
 ## Repository
 
@@ -149,7 +152,7 @@ Arc mainnet (chain 5042), deployed 2026-10-08 03:45 UTC:
 | Tamias | [`0xc53fef25d0b143e67ed97961e616867b382cf1e9`](https://explorer.arc.io/address/0xc53fef25d0b143e67ed97961e616867b382cf1e9), deploy tx [`0xed8cc15e…cf3bdc`](https://explorer.arc.io/tx/0xed8cc15e861275027b147baae2d5f3cd2f8f62ebc8535c48c4918b0f55cf3bdc), block 24,838,865 |
 | Owner (human) | `0x722440CbAd38E5f5bcb9512EF5F94277F7d1E697` |
 | Agent (hot key) | `0xec358c50D7079EB83Ae317D20052e6be80a2EF39` |
-| x402 data wallet | `0x9f9936706F5D640775e32b0948dcc3C93d5278e3` |
+| x402 data wallet | Circle Agent Wallet `0x35b7fbc0815ec566c2af5f8a1b66e4ffce773745`. First purchase: BlockRun EUR/USD prices for 0.002 USDC, settled in [`0xd429515f…`](https://explorer.arc.io/tx/0xd429515f3bc34a1abbf9493cd5f589951b8fc93338a9194bb5952db430c08452). |
 | Policy | [`agent/config/mainnet.json`](agent/config/mainnet.json): every value is also on the record chain as an owner `policy` entry |
 
 First Gateway round trip (operator smoke test, 2026-10-08):

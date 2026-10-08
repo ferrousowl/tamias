@@ -6,6 +6,7 @@
 //   node owner.mjs approve <id> "<note>"  carry out a proposal
 //   node owner.mjs reject <id> "<note>"
 //   node owner.mjs fund <amount> [key]    send USDC into the treasury (default: the owner key)
+//   node owner.mjs repoint-payee <id> <address>
 //   node owner.mjs unfreeze | freeze
 import fs from "fs";
 import path from "path";
@@ -108,6 +109,11 @@ if (cmd === "deploy") {
   const [amount, key] = rest;
   const from = key ? wallet(key) : owner;
   await sendAndWait(pub, `fund ${amount}`, from.sendTransaction({ to: cfg.tamias, value: parseEther(String(amount)), ...(await fees(pub)) }));
+} else if (cmd === "repoint-payee") {
+  // keep everything about a payee but where its money goes
+  const [id, account] = rest;
+  const p = await pub.readContract({ ...T(), functionName: "getPayee", args: [BigInt(id)] });
+  await write(`payee ${id} → ${account}`, "setPayee", [BigInt(id), { ...p, account }]);
 } else if (cmd === "freeze" || cmd === "unfreeze") {
   await write(cmd, "setFrozen", [cmd === "freeze"]);
 } else {

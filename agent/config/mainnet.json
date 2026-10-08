@@ -51,8 +51,8 @@
       },
       {
         "id": "x402",
-        "label": "x402 data wallet: pays for the information you buy",
-        "address": "0x9f9936706F5D640775e32b0948dcc3C93d5278e3",
+        "label": "x402 data wallet (a Circle Agent Wallet): pays for the information you buy",
+        "address": "0x35b7fbc0815ec566c2af5f8a1b66e4ffce773745",
         "minimum": 0
       }
     ],
@@ -199,9 +199,9 @@
         "maxPayment": 0
       },
       {
-        "label": "x402 data wallet (pays for information per request)",
+        "label": "x402 data wallet (Circle Agent Wallet; pays for information per request)",
         "kind": "transfer",
-        "account": "0x9f9936706F5D640775e32b0948dcc3C93d5278e3",
+        "account": "0x35b7fbc0815ec566c2af5f8a1b66e4ffce773745",
         "category": 5,
         "maxPayment": 0.1
       }
@@ -268,7 +268,9 @@
         "what": "market prices of EURC and USDC (before paying or valuing anything in euros)"
       }
     ],
-    "totalCap": 0.5
+    "totalCap": 0.5,
+    "mode": "circle",
+    "circleAddress": "0x35b7fbc0815ec566c2af5f8a1b66e4ffce773745"
   },
   "rpcFallbacks": [
     "https://5042.rpc.thirdweb.com"
