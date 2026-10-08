@@ -4,7 +4,7 @@
 // from the owner's catalog, on Arc, in USDC, and at or under the catalog price.
 import { wrapFetchWithPaymentFromConfig, decodePaymentResponseHeader } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm";
-import { USDC, log } from "./lib.mjs";
+import { USDC, log, readJsonl } from "./lib.mjs";
 
 const ARC = "eip155:5042";
 
@@ -16,6 +16,9 @@ export function catalogText(cfg) {
 export async function buyInfo(cfg, account, id) {
   const s = (cfg.x402?.services ?? []).find((x) => x.id === id);
   if (!s) throw new Error(`"${id}" is not in the catalog`);
+  // a local total cap on top of the on-chain budget that refills the purchase wallet
+  const spent = readJsonl("purchases.jsonl").reduce((t, p) => t + (p.error ? 0 : p.price ?? 0), 0);
+  if (cfg.x402?.totalCap != null && spent + s.price > cfg.x402.totalCap) throw new Error(`total x402 cap reached (${spent.toFixed(4)} of ${cfg.x402.totalCap} USDC spent)`);
   const maxUnits = BigInt(Math.round(s.price * 1e6));
   let chosen = null;
   const pay = wrapFetchWithPaymentFromConfig(fetch, {

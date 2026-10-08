@@ -93,7 +93,8 @@ export function briefing({ cfg, snap, fc, recent, cycle }) {
   if (!(r.vaults ?? []).length) lines.push("- no vaults listed");
   lines.push(`Treasury funds (cash + reserves): ${fc.operation.treasuryFunds} USDC.`);
   if (cfg.x402?.services?.length) {
-    lines.push(`\n## Information you can buy (buy_info, x402; your gas wallet holds ${snap.wallets.agentGas?.usdc ?? "?"} USDC)`);
+    const xw = snap.wallets.x402 ?? snap.wallets.agentGas;
+    lines.push(`\n## Information you can buy (buy_info, x402; paid from the ${snap.wallets.x402 ? "x402 data wallet" : "gas wallet"}, which holds ${xw?.usdc ?? "?"} USDC; refill it through its payee if a purchase is worth it)`);
     lines.push(cfg.x402.services.map((x) => `- "${x.id}": ${x.what} (≈${x.price} USDC)`).join("\n"));
   }
 

@@ -96,7 +96,7 @@ if (wants.length) {
   for (const d of wants) {
     if (DRY) { sections.push(`- ${d.service}: (dry run, not bought)`); continue; }
     try {
-      const b = await buyInfo(cfg, agent.account, d.service);
+      const b = await buyInfo(cfg, wallet(cfg.keys.x402 ?? cfg.keys.agent).account, d.service);
       bought.push({ service: b.id, price: b.price, payTo: b.payTo, tx: b.settlement, why: d.why });
       sections.push(`### ${b.id} (paid ${b.price} USDC)\n${b.text}`);
     } catch (e) {

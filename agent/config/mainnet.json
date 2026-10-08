@@ -6,7 +6,8 @@
   "effort": "medium",
   "keys": {
     "agent": "tamias-agent",
-    "owner": "tamias-owner"
+    "owner": "tamias-owner",
+    "x402": "tamias-x402"
   },
   "business": {
     "name": "ferrousowl's Arc operation",
@@ -47,6 +48,12 @@
         "label": "Tamias agent hot key: pays gas for your own transactions",
         "address": "0xec358c50D7079EB83Ae317D20052e6be80a2EF39",
         "minimum": 0.05
+      },
+      {
+        "id": "x402",
+        "label": "x402 data wallet: pays for the information you buy",
+        "address": "0x9f9936706F5D640775e32b0948dcc3C93d5278e3",
+        "minimum": 0
       }
     ],
     "tock": {
@@ -105,7 +112,7 @@
   },
   "policy": {
     "autoLimit": 1,
-    "floor": 0.5,
+    "floor": 0.3,
     "proposalTtlHours": 72,
     "eurcRate": 1.17,
     "categories": [
@@ -120,7 +127,7 @@
         "periodHours": 24
       },
       {
-        "name": "agent operations (own gas, data purchases)",
+        "name": "agent operations (its own transaction gas)",
         "budget": 0.2,
         "periodHours": 24
       },
@@ -133,6 +140,11 @@
         "name": "Gateway fees",
         "budget": 0.05,
         "periodHours": 24
+      },
+      {
+        "name": "data purchases (x402), 0.5 USDC per 30 days",
+        "budget": 0.5,
+        "periodHours": 720
       }
     ],
     "payees": [
@@ -173,7 +185,7 @@
         "maxPayment": 1
       },
       {
-        "label": "Tamias agent wallet (gas and x402 data purchases)",
+        "label": "Tamias agent wallet (its own transaction gas)",
         "kind": "transfer",
         "account": "0xec358c50D7079EB83Ae317D20052e6be80a2EF39",
         "category": 2,
@@ -185,6 +197,13 @@
         "account": "0x10c4911e8415D3a297B29e350Bd492Aa3e1edd13",
         "category": 3,
         "maxPayment": 0
+      },
+      {
+        "label": "x402 data wallet (pays for information per request)",
+        "kind": "transfer",
+        "account": "0x9f9936706F5D640775e32b0948dcc3C93d5278e3",
+        "category": 5,
+        "maxPayment": 0.1
       }
     ],
     "actions": [
@@ -248,10 +267,10 @@
         "price": 0.002,
         "what": "market prices of EURC and USDC (before paying or valuing anything in euros)"
       }
-    ]
+    ],
+    "totalCap": 0.5
   },
   "rpcFallbacks": [
     "https://5042.rpc.thirdweb.com"
-  ],
-  "_pending": "Not deployed. Needs the user's OK (main): mainnet deploy, funding, disabling standing-topup.timer, owner-distribution address (savings key vs MetaMask), extra float."
+  ]
 }
