@@ -6,6 +6,7 @@
 //   node owner.mjs approve <id> "<note>"  carry out a proposal
 //   node owner.mjs reject <id> "<note>"
 //   node owner.mjs fund <amount> [key]    send USDC into the treasury (default: the owner key)
+//   node owner.mjs set-limits <autoLimit> <floor> <ttlHours> "<reason>"
 //   node owner.mjs repoint-payee <id> <address>
 //   node owner.mjs unfreeze | freeze
 import fs from "fs";
@@ -109,6 +110,14 @@ if (cmd === "deploy") {
   const [amount, key] = rest;
   const from = key ? wallet(key) : owner;
   await sendAndWait(pub, `fund ${amount}`, from.sendTransaction({ to: cfg.tamias, value: parseEther(String(amount)), ...(await fees(pub)) }));
+} else if (cmd === "set-limits") {
+  // The owner's reason rides along as UTF-8 after the ABI-encoded arguments. Solidity ignores the
+  // trailing bytes, but the contract records msg.data, so the reason lands in the record chain.
+  const [autoLimit, floor, ttlHours, why] = rest;
+  if (!why) throw new Error("usage: set-limits <autoLimit> <floor> <ttlHours> \"<reason>\"");
+  const data = encodeFunctionData({ abi: TAMIAS_ABI, functionName: "setLimits", args: [toUnits(autoLimit), toUnits(floor), Number(ttlHours) * 3600] })
+    + toHex(new TextEncoder().encode(JSON.stringify({ v: 1, app: "tamias", by: "owner", why }))).slice(2);
+  await sendAndWait(pub, `setLimits ${autoLimit}/${floor}/${ttlHours}h`, owner.sendTransaction({ to: cfg.tamias, data, ...(await fees(pub)) }));
 } else if (cmd === "repoint-payee") {
   // keep everything about a payee but where its money goes
   const [id, account] = rest;

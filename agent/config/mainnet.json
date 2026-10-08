@@ -111,7 +111,7 @@
     ]
   },
   "policy": {
-    "autoLimit": 1,
+    "autoLimit": 0.5,
     "floor": 0.3,
     "proposalTtlHours": 72,
     "eurcRate": 1.17,

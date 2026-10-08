@@ -119,7 +119,7 @@
 </div>
 
 <script type="module">
-import { createPublicClient, http, fallback, keccak256, encodeAbiParameters, hexToString, decodeFunctionData, getAbiItem, formatUnits } from "https://esm.sh/viem@2.57.2";
+import { createPublicClient, http, fallback, keccak256, encodeAbiParameters, hexToString, decodeFunctionData, encodeFunctionData, getAbiItem, formatUnits } from "https://esm.sh/viem@2.57.2";
 
 const params = new URLSearchParams(location.search);
 const CONFIG = await fetch("config.json").then((r) => r.json()).catch(() => ({}));
@@ -185,6 +185,12 @@ function parse(r) {
   if (r.op === 7) {
     try {
       const { functionName: f, args: a } = decodeFunctionData({ abi: ABI, data: r.recordHex });
+      // an owner may append a reason after the arguments; the contract keeps it in msg.data
+      let ownerWhy = null;
+      const plain = encodeFunctionData({ abi: ABI, functionName: f, args: a });
+      if (r.recordHex.length > plain.length) {
+        try { ownerWhy = JSON.parse(hexToString("0x" + r.recordHex.slice(plain.length))).why ?? null; } catch {}
+      }
       const u = (x) => usd(Number(x) / 1e6);
       const title = {
         setLimits: () => `Limits: auto-approve up to ${u(a[0])}, keep ${u(a[1])} cash, proposals expire in ${a[2] / 3600} h`,
@@ -200,7 +206,7 @@ function parse(r) {
         ownerCall: () => `Owner call to ${short(a[0])}`,
         acceptOwnership: () => "Ownership transferred",
       }[f];
-      return { policy: `${f}(${a.map((x) => (typeof x === "object" ? JSON.stringify(x, (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 160) : String(x))).join(", ")})`, title: title ? title() : f };
+      return { policy: `${f}(${a.map((x) => (typeof x === "object" ? JSON.stringify(x, (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 160) : String(x))).join(", ")})`, title: title ? title() : f, ...(ownerWhy ? { why: ownerWhy } : {}) };
     } catch { return { policy: "policy change" }; }
   }
   const text = (() => { try { return hexToString(r.recordHex); } catch { return ""; } })();
