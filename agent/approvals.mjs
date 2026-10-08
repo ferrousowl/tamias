@@ -64,6 +64,7 @@ for (;;) {
     const m = u.message;
     if (!m?.from || m.from.id !== Number(N.ownerId) || String(m.chat.id) !== String(N.chatId)) continue; // strangers: silence
     const t = (m.text ?? "").trim();
+    log(`owner message: ${t.slice(0, 40)}`);
     const hit = /^(approve|reject) (\d{1,6})$/i.exec(t);
     if (hit) await decide(hit[1].toLowerCase(), Number(hit[2]), m.from.id);
     else if (t === "/start") await reply(`Tamias approvals for treasury ${cfg.tamias} on Arc. When the agent asks for something beyond its limits, the request arrives here. Reply exactly "approve N" or "reject N" to decide proposal #N. Every decision goes on the public record: https://ferrousowl.github.io/tamias/`);
