@@ -239,7 +239,7 @@ const live = await (async () => {
   return { cash: Number(cash) / 1e6, frozen, autoLimit: Number(autoLimit) / 1e6, floor: Number(floor) / 1e6, cats, payees, vaults, gateway, inVaults };
 })();
 
-const agentRows = rows.filter((r) => r.op !== 7);
+const agentRows = rows.filter((r) => r.op !== 7 && !r.j.operator);
 const by = (op) => rows.filter((r) => r.op === op);
 const paid = by(1).reduce((s, r) => s + Number(r.usdRaw) / 1e6, 0) + by(4).reduce((s, r) => s + Number(r.usdRaw) / 1e6, 0);
 const approved = by(4).length, rejected = by(5).length, proposed = by(3).length;
@@ -317,7 +317,7 @@ function render() {
     det.push(["Transaction", r.tx ? `<a class="mono" href="${EXPLORER}/tx/${r.tx}" target="_blank" rel="noopener">${short(r.tx)}</a> · block ${r.block} · record #${r.seq}` : `block ${r.block} · record #${r.seq}`]);
     return `<article class="entry">
       <div class="top"><span class="tag t-${tag}">${tag}</span><span class="what">${esc(what)}</span><span class="muted">${esc(sub)}</span><span class="when" title="${r.at ?? ""}">${r.at ? ago(r.at) : ""}</span></div>
-      ${j.why ? `<p class="why">${esc(j.why)}</p>` : ""}
+      ${j.why ? `<p class="why">${esc(j.why)}</p>` : j.operator ? `<p class="why muted">Operator: ${esc(j.operator)}.</p>` : ""}
       ${j.refused?.length ? `<div class="refused">Contract refused first: ${j.refused.map((x) => `${esc(x.tried)} → <b>${esc(x.contract)}</b>`).join("; ")}</div>` : ""}
       ${j.bought?.length ? `<div class="bought">Bought information: ${j.bought.map((b) => `${esc(b.service)}${b.price != null ? ` for ${b.price} USDC` : ""}${b.error ? ` (failed: ${esc(b.error)})` : ""}`).join("; ")}</div>` : ""}
       <details><summary>Details</summary><dl>${det.map(([k, val]) => `<dt>${k}</dt><dd>${typeof val === "string" && val.startsWith("<") ? val : esc(val)}</dd>`).join("")}</dl></details>
